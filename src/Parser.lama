@@ -12,14 +12,52 @@ fun inbr (l, p, r) {
   syntax (-l p -r)
 }
 
--- Primary expression
-var primary = memo $ eta (decimal @ fun (x) {Const (stringInt (x))} |
-                          lident  @ fun (x) {Var (x)} |
-                          inbr (s ("("), exp, s (")"))),
-    exp = memo $ eta (failure ("expression parsing not implemented\n"));
+fun binopParser(op) {
+  [s(op), fun(l, op, r) {Binop(op, l, r)}]
+}
 
-var stmt = memo $ eta (failure ("statement parsing not implemented\n"));
-   
+-- Primary expression
+var primary = memo $ eta syntax (x=decimal {Const (stringInt (x))} |
+                                 x=lident  {Var (x)}               |
+                                 inbr[s("("), exp, s(")")]),
+    exp = memo $ eta (
+      expr({
+        [Left, {
+          binopParser("!!"),
+          binopParser("&&")
+        }],
+        [Nona, {
+          binopParser("=="),
+          binopParser("!="),
+          binopParser(">="),
+          binopParser("<="),
+          binopParser(">"),
+          binopParser("<")
+        }],
+        [Left, {
+          binopParser("+"),
+          binopParser("-")
+        }],
+        [Left, {
+          binopParser("*"),
+          binopParser("/"),
+          binopParser("%")
+        }]
+      }, primary));
+
+var elseStmt = memo $ eta syntax (kElse s=stmt {s} |
+                                  kElif e=exp kThen s=stmt elSt=elseStmt {If(e, s, elSt)});
+var oneStmt = memo $ eta syntax (
+  x=lident s[":="] e=exp                { Assn(x, e) } |
+  kRead  x=inbr[s("("), lident, s(")")] { Read(x) }    |
+  kWrite e=inbr[s("("), exp, s(")")]    { Write(e) }   |
+  kSkip                                 { Skip }       |
+  kIf    e=exp kThen s=stmt kFi                { If(e, s, Skip) }  |
+  kIf    e=exp kThen s=stmt  elSt=elseStmt kFi { If(e, s, elSt ) } |
+  kWhile e=exp   kDo s=stmt kOd                { While(e, s) }     |
+  kDo    s=stmt kWhile e=exp kOd               { DoWhile(s, e) }   |
+  kFor s1=stmt s[","] e=exp s[","] s2=stmt kDo s3=stmt kOd { Seq(s1, While(e, Seq(s3, s2))) });
+var stmt = memo $ eta syntax (oneStmt | s1=oneStmt s[";"] s2=stmt { Seq(s1, s2) } );
 
 -- Public top-level parser
 public parse = stmt;

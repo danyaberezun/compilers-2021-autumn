@@ -55,7 +55,33 @@ fun fromLabel (env, lab) {
 -- Stack machine interpreter. Takes an environment, an SM-configuration and a program,
 -- returns a final configuration
 fun eval (env, c, insns) {
-  failure ("SM eval not implemented\n")
+  case insns of
+      {} -> c
+    | i:ns ->
+      case c of
+          [stack, s, w]  ->  case i of
+              READ       ->  case readWorld(w) of [z, w1] -> eval (env, [z:stack, s, w1], ns) esac
+            | WRITE      ->  case stack of z:stack1 -> eval (env, [stack1, s, writeWorld(z, w)], ns) esac
+            | BINOP (op) -> case stack of y:x:stack1 -> eval (env, [(evalOp(op, x, y)):stack1, s, w], ns) esac
+            | LD    (x)  -> eval (env, [s(x):stack, s, w], ns)
+            | ST    (strr) -> case stack of z:stack1 -> eval (env, [stack1, s <- [strr, z], w], ns) esac
+            | CONST (n)    -> eval (env, [n:stack, s, w], ns)
+            | LABEL (l)    -> eval (env, c, ns)
+            | JMP   (l)    -> eval(env, c, fromLabel(env, l))
+            | CJMP  ("z", l) ->
+              case stack of
+                0:stack1 -> eval(env, [stack1, s, w], fromLabel(env, l))
+              | _:stack1 -> eval(env, [stack1, s, w], ns)
+              esac
+            | CJMP  ("nz", l) ->
+              case stack of
+                0:stack1 -> eval(env, [stack1, s, w], ns)
+              | _:stack1 -> eval(env, [stack1, s, w], fromLabel(env, l))
+              esac
+          esac
+        | _ -> failure ("no SM-comfiguration")
+      esac
+  esac
 }
 
 -- Runs a stack machine for a given input and a given program, returns an output
@@ -96,7 +122,11 @@ fun genLabels (env, n) {
 -- Compiles an expression into a stack machine code.
 -- Takes an expression, returns a list of stack machine instructions
 fun compileExpr (expr) {
-  failure ("compileExpr not implemented\n")
+  case expr of
+      Var (x) -> emptyBuffer () <+ LD (x)
+    | Const (n) -> emptyBuffer () <+ CONST (n)
+    | Binop (op, l, r) -> compileExpr(l) <+> compileExpr(r) <+ BINOP(op)
+  esac
 }
 
 -- Compiles a statement into a stack machine code.
@@ -137,9 +167,42 @@ public fun compileSM (stmt) {
                   esac
              esac
         esac
+    | If   (e, s1, s2) ->
+      case env.genLabel of
+        [elsLab, env] ->
+          case env.genLabel of
+            [eLab, env] ->
+            case compile (elsLab, env, s1) of
+              [s1LabUsed, env, s1Code] ->
+                case compile(eLab, env, s2) of
+                  [s2LabUsed, env, s2Code] -> [s2LabUsed, env, compileExpr(e) <+ CJMP("z", elsLab)
+                    <+> s1Code <+ JMP(eLab) <+ LABEL(elsLab) <+> s2Code <+ LABEL(eLab)]
+                esac
+            esac
+          esac
+      esac
+    | While   (e, s) ->
+      case env.genLabel of
+        [sLab, env] ->
+          case env.genLabel of
+            [breakLab, env] ->
+              case compile (lab, env, s) of
+                [labUsed, env, sCode] -> [labUsed, env, emptyBuffer() <+ LABEL(sLab) <+> compileExpr(e)
+                  <+ CJMP("z", breakLab) <+> sCode <+ JMP(sLab) <+ LABEL(breakLab)]
+              esac
+          esac
+      esac
+    | DoWhile (s, e) ->
+      case env.genLabel of
+        [sLab, env] ->
+          case compile(sLab, env, s) of
+            [labUsed, env, sCode] -> [labUsed, env, emptyBuffer() <+ LABEL(sLab) <+> sCode
+              <+> compileExpr(e) <+ CJMP("nz", sLab)]
+          esac
+      esac
     | _              -> failure ("compileSM not implemented\n")
     esac
-  }  
+  }
 
   case initCompEnv ().genLabel of
     [endLab, env] ->
