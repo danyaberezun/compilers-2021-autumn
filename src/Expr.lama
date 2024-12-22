@@ -79,7 +79,28 @@ fun addNames (state, names) {
 fun addFunction (state, name, args, body) {
   state.addName (name, Fun (args, body))
 }
-                                        
+
+
+fun addDefinitions(state, definitions) {
+  fun addDefinition(state, definition) {
+    case definition of
+      Fun (identifier, args, body) -> addFunction(state, identifier, args, body)
+      | Var (identifier) -> addNames(state, identifier)
+    esac
+  }
+
+  foldl (addDefinition, state, definitions)
+}
+
+
+fun addParameters(state, pairs) {
+  fun addParameter(st, [identifier, value]) {
+    addName(st, identifier, value)
+  }
+  foldl(addParameter, state, pairs)
+}
+
+
 -- Evaluates a list of expressions, properly threading a configurations.
 -- Returns the final configuration and the list of values
 fun evalList (c, exprs) {
@@ -95,8 +116,100 @@ fun evalList (c, exprs) {
 }
 
 (* Assignment *)
-fun eval (c@[s, w], expr) {
-  failure ("evalExpr not implemented\n")
+-- fun eval (c@[s, w], expr) {
+--   failure ("evalExpr not implemented\n")
+-- }
+fun eval (c@[st, w], expr) {
+  -- st (state): [scopes] where
+  -- scope: (scope variables, local state)
+  -- scopes.last: (global variables, global state)
+  case expr of
+    Assn (expr1, expr2) ->
+      case evalList(c, { expr1, expr2 }) of
+        [[st, w2], { x, v }] ->
+          [[st <- [x, v], w2], v]
+      esac
+
+    | Scope (definitions, body) ->
+      case enterScope(st) of
+        state ->
+          case addDefinitions(state, definitions) of
+            state ->
+              case eval([state, w], body) of
+                [[state, w], v] -> [[leaveScope(state), w], v]
+              esac
+          esac
+      esac
+
+    | Call (identifier, argExprs) ->
+      -- search for a function definition
+      case lookup(st, identifier) of
+        Fun (params, body) ->
+          -- evaluate final values of the function arguments
+          case evalList([st, w], argExprs) of
+            [[state, w], paramValues] ->
+              -- merge (pair-wise) function parameter names and thier values
+              case zip(params, paramValues) of
+                pairs ->
+                  -- 1. enter function scope
+                  -- 2. add function parameters to the scope state
+                  -- 3. evaluate the function body
+                  case eval([addParameters(enterFunction(state), pairs), w], body) of
+                    [[stateAfterFunc, w], v] ->
+                      case leaveFunction(state, getGlobal(stateAfterFunc)) of
+                        finalState -> [[finalState, w], v]
+                      esac
+                  esac
+              esac
+          esac
+      esac
+
+    | Seq (expr1, expr2) -> eval(fst(eval(c, expr1)), expr2)
+    | Skip -> [c, {}]
+    | Read (x) ->
+        case readWorld(w) of
+          [z, w2] -> [[st <- [x, z], w2], {}]
+        esac
+    | Write (expr) ->
+      case eval (c, expr) of
+        [[st2, w2], v] -> [[st2, writeWorld(v, w2)], {}]
+      esac
+    | If (expr, s1, s2) ->
+      case eval(c, expr) of
+        [c2, v] ->
+          case v of
+            0   -> eval(c2, s2)
+            | _ -> eval(c2, s1)
+          esac
+      esac
+
+    | While (e, s) ->
+        case eval(c, e) of
+          [c2, 0] -> [c2, {}]
+        | [c2, _] -> eval(eval(c2, s).fst, expr)
+        esac
+
+    | DoWhile (s, e) ->
+      case eval(c, s) of
+        [c2, _] ->
+          case eval(c2, e) of
+              [c3, 0] -> [c3, {}]
+            | [c3, _] -> eval(c3, expr)
+          esac
+      esac
+
+    | Var (x) -> [c, lookup(st, x)]
+    | Ref (x) -> [c, x]
+    | Const (z) -> [c, z]
+    | Binop (op, expr1, expr2) ->
+      case evalList(c, { expr1, expr2 }) of
+        [c2, {x, y}] -> [c2, evalOp(op, x, y)]
+      esac
+    | Ignore (expr) ->
+      case eval(c, expr) of
+        [c2, _] -> [c2, {}]
+      esac
+  esac
 }
 (* End *)
 
