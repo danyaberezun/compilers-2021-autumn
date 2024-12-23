@@ -361,6 +361,31 @@ fun suffix (op) {
   esac
 }
 
+fun myBinop(codeOld, x, y, op, s) {
+  var code = codeOld <+> singletonBuffer(Mov(y, rax));
+  case op of
+      "+" -> code <+ Binop(op, x, rax) <+ Mov(rax, s)
+    | "-" -> code <+ Binop(op, x, rax) <+ Mov(rax, s)
+    | "*" -> code <+ Binop(op, x, rax) <+ Mov(rax, s)
+    | "/" -> code <+ Cltd <+ IDiv(x) <+ Mov(rax, s)
+    | "%" -> code <+ Cltd <+ IDiv(x) <+ Mov(rdx, s)
+    | "<" -> code <+ Binop("^", rdx, rdx) <+ Binop("cmp", x, rax) <+ Set(suffix(op), "%dl") <+ Mov(rdx, s)
+    | ">" -> code <+ Binop("^", rdx, rdx) <+ Binop("cmp", x, rax) <+ Set(suffix(op), "%dl") <+ Mov(rdx, s)
+    | "<=" -> code <+ Binop("^", rdx, rdx) <+ Binop("cmp", x, rax) <+ Set(suffix(op), "%dl") <+ Mov(rdx, s)
+    | ">=" -> code <+ Binop("^", rdx, rdx) <+ Binop("cmp", x, rax) <+ Set(suffix(op), "%dl") <+ Mov(rdx, s)
+    | "==" -> code <+ Binop("^", rdx, rdx) <+ Binop("cmp", x, rax) <+ Set(suffix(op), "%dl") <+ Mov(rdx, s)
+    | "!=" -> code <+ Binop("^", rdx, rdx) <+ Binop("cmp", x, rax) <+ Set(suffix(op), "%dl") <+ Mov(rdx, s)
+    | "&&" -> code
+      <+ Binop("^", rax, rax) <+ Binop("cmp", rax, y) <+ Set(suffix("!="), "%al")
+      <+ Binop("^", rdx, rdx) <+ Binop("cmp", rdx, x) <+ Set(suffix("!="), "%dl")
+      <+ Binop(op, rdx, rax) <+ Mov(rax, s)
+    | "!!" -> code
+      <+ Binop("^", rax, rax) <+ Binop("cmp", rax, y) <+ Set(suffix("!="), "%al")
+      <+ Binop("^", rdx, rdx) <+ Binop("cmp", rdx, x) <+ Set(suffix("!="), "%dl")
+      <+ Binop(op, rdx, rax) <+ Mov(rax, s)
+  esac
+}
+
 -- Compiles stack machine code into a list of x86 instructions. Takes an environment
 -- and stack machine code, returns an updated environment and x86 code.
 fun compile (env, code) {
@@ -377,8 +402,49 @@ fun compile (env, code) {
           case env.pop of
             [s, env] -> [env, code <+ Mov (s, rdi) <+ Call ("Lwrite")]
           esac
-      | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
+      | LD (x) ->
+          case env.addGlobal(x).allocate of
+            [s, env] -> [env, code <+  Mov (env.loc(x), s)]
+          esac
+      | LDA (x) ->
+          case env.addGlobal(x).allocate of
+            [s, env] -> [env, code <+ Lea(env.loc(x), s)]
+          esac
+      | ST (x) ->
+          case env.addGlobal (x).pop of
+            [s, env] -> [env, code <+ Mov (s, env.loc (x))]
+          esac
+      | STI    ->
+          case env.pop2 of
+            [x, y, env] ->
+              case env.allocate of
+                [s, env] -> [env, code <+ Mov(x, I(0, y)) <+ Mov(x, s)]
+              esac
+          esac
+      | CONST(x) ->
+          case env.allocate of
+            [s, env] -> [env, code <+ Mov (L (x), s)]
+          esac
+      | BINOP (op) ->
+          case env.pop2 of
+            [x, y, env] ->
+              case env.allocate of
+                [s, env] -> [env, myBinop(code, x, y, op, s)]
+              esac
+          esac
+      | LABEL (l) ->
+          if isBarrier(env)
+            then [retrieveStack(env, l), code <+ Label(l)]
+            else [env, code <+ Label(l)]
+          fi
+      | JMP (l)     -> [env, code <+ Jmp(l)]
+      | CJMP (c, l) ->
+        case env.pop of
+          [s, env] -> [setBarrier(env.setStack(l)), code <+ Binop ("cmp", L(0), s) <+ CJmp (c, l)]
         esac
+      | DROP        -> case env.pop of [_, env] -> [env, code] esac
+      | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
+      esac
     }, [env, emptyBuffer ()], code)
 }
 

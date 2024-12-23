@@ -53,18 +53,46 @@ public fun evalOp (op, l, r) {
 -- Returns the final configuration and the list of values
 fun evalList (c, exprs) {
   case foldl (fun ([c, vals], e) {
-                case eval (c, e) of
-                  [c, v] -> [c, v : vals]
-                esac
-              },
-              [c, {}],
-              exprs) of
+    case eval (c, e) of
+      [c, v] -> [c, v : vals]
+    esac
+  },
+    [c, {}],
+    exprs) of
     [c, vals] -> [c, reverse (vals)]
   esac
 }
 
 fun eval (c@[s, w], expr) {
-  failure ("evalExpr not implemented\n")
+  case expr of
+      Assn    (eL, eR)     ->
+        case evalList(c, {eL, eR}) of
+          [[s1, w1], {Ref(x), Val(e)}] -> [[s1 <- [x, e], w1], Val(e)]
+        esac
+    | Seq     (e1, e2)     -> eval(eval(c, e1).fst, e2)
+    | Skip                 -> [c, Void]
+    | Read    (strr)       -> case readWorld(w) of [z1, w1]            -> [[s <- [strr, z1], w1], Void] esac
+    | Write   (e)          -> case eval(c, e)   of [[s1, w1], Val(x)] -> [[s1, writeWorld(x, w1)], Void] esac
+    | If      (e1, e2, e3) ->
+        case eval(c, e1) of
+            [c1, Val(0)] -> eval(c1, e3)
+          | [c1, Val(_)] -> eval(c1, e2)
+        esac
+    | While   (e1, e2)     ->
+        case eval(c, e1) of
+            [c1, Val(0)] -> [c1, Void]
+          | [c1, Val(_)] -> eval(eval(c1, e2).fst, expr)
+        esac
+    | DoWhile (e1, e2)     -> eval(eval(c, e1).fst, While (e2, e1))
+    | Var     (strr)       -> [c, Val( s(strr) )]
+    | Ref     (strr)       -> [c, Ref( strr )]
+    | Const   (n)          -> [c, Val( n )]
+    | Binop   (op, eL, eR) ->
+      case evalList(c, {eL, eR}) of
+        [c1, { Val(lhs), Val(rhs) }] -> [c1, Val(evalOp(op, lhs, rhs))]
+      esac
+    | Ignore  (expr)       -> [eval(c, expr).fst, Void]
+  esac
 }
 
 
