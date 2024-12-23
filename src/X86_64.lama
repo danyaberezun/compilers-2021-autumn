@@ -9,51 +9,51 @@ import Manifest;
 
 -- Assembler language interface
 -- The registers:
-  
+
 var regs = ["%rbx", "%rcx", "%rsi", "%rdi",
-            "%r8" , "%r9" , "%r10", "%r11",
-	    "%r12", "%r13", "%r14", "%r15",
-	    "%rax", "%rdx", "%rbp", "%rsp"];
+  "%r8", "%r9", "%r10", "%r11",
+  "%r12", "%r13", "%r14", "%r15",
+  "%rax", "%rdx", "%rbp", "%rsp"];
 
 -- We can not freely operate with all register; only with 12 by now
 var nRegs = regs.length - 5;
 
--- For convenience we define the following synonyms for the registers: 
-var rbx = R (0),
-    rcx = R (1),
-    rsi = R (2),
-    rdi = R (3),
-    r8  = R (4),
-    r9  = R (5),
-    r10 = R (6),
-    r11 = R (7),
-    r12 = R (8),
-    r13 = R (9),
-    r14 = R (10),
-    r15 = R (11),
-    rax = R (12),
-    rdx = R (13),
-    rbp = R (14),
-    rsp = R (15);
+-- For convenience we define the following synonyms for the registers:
+var rbx = R(0),
+    rcx = R(1),
+    rsi = R(2),
+    rdi = R(3),
+    r8 = R(4),
+    r9 = R(5),
+    r10 = R(6),
+    r11 = R(7),
+    r12 = R(8),
+    r13 = R(9),
+    r14 = R(10),
+    r15 = R(11),
+    rax = R(12),
+    rdx = R(13),
+    rbp = R(14),
+    rsp = R(15);
 
 -- We need to know the word size to calculate offsets correctly
 var wordSize = 8;
 
--- We need to distinguish the following operand types: 
---    R (int)        -- hard register                    
---    S (int)        -- a position on the hardware stack 
---    M (string)     -- a named memory location          
---    L (int/string) -- an immediate operand             
+-- We need to distinguish the following operand types:
+--    R (int)        -- hard register
+--    S (int)        -- a position on the hardware stack
+--    M (string)     -- a named memory location
+--    L (int/string) -- an immediate operand
 --    I (int, opnd)  -- an indirect operand with offset
 
 -- Some x86 instruction (we do not need all of them):
---   Mov   (opnd, opnd)         -- copies a value from the first to the second operand  
+--   Mov   (opnd, opnd)         -- copies a value from the first to the second operand
 --   Lea   (opnd, opnd)         -- loads an address of the first operand into the second
---   Binop (string, opnd, opnd) -- makes a binary operation; note, the first operand   
+--   Binop (string, opnd, opnd) -- makes a binary operation; note, the first operand
 --                                 designates x86 operator, not the source language one
---   IDiv  (opnd)               -- x86 integer division, see instruction set reference 
---   Cltd                       -- see instruction set reference           
---   Set   (string, string)     -- sets a value from flags; the first operand is the   
+--   IDiv  (opnd)               -- x86 integer division, see instruction set reference
+--   Cltd                       -- see instruction set reference
+--   Set   (string, string)     -- sets a value from flags; the first operand is the
 --                                 suffix, which determines the value being set, the
 --                                 the second --- (sub)register name
 --   Jmp   (string)             -- unconditional jump to a label
@@ -61,57 +61,57 @@ var wordSize = 8;
 --   Label (string)             -- a label
 --   Push  (opnd)               -- pushes the operand on the hardware stack
 --   Pop   (opnd)               -- pops from the hardware stack to the operand
---   Call  (string)             -- calls a function by its name 
+--   Call  (string)             -- calls a function by its name
 --   Ret                        -- returns from a function
 --   Meta  (string)             -- metainformation (declarations, etc.)
-                                                               
+
 -- Machine instruction printer
-fun insnString (insn) {
-  
-  fun binopString (op) {
+fun insnString(insn) {
+
+  fun binopString(op) {
     case op of
-      "+"   -> "addq"
-    | "-"   -> "subq"
-    | "*"   -> "imulq"
-    | "&&"  -> "andq"
-    | "!!"  -> "orq" 
-    | "^"   -> "xorq"
-    | "cmp" -> "cmpq"
+        "+"   -> "addq"
+      | "-"   -> "subq"
+      | "*"   -> "imulq"
+      | "&&"  -> "andq"
+      | "!!"  -> "orq"
+      | "^"   -> "xorq"
+      | "cmp" -> "cmpq"
     esac
   }
 
-  fun opndString (opnd) {
+  fun opndString(opnd) {
     case opnd of
-      R (i)      -> regs [i]
-    | S (i)      -> if i >= 0
-                    then sprintf ("-%d(%%rbp)", (i+1) * wordSize)
-                    else sprintf ("%d(%%rbp)", wordSize * 2 + (-1-i) * wordSize)
-                    fi
+        R (i)      -> regs [i]
+      | S (i)      -> if i >= 0
+        then sprintf("-%d(%%rbp)", (i + 1) * wordSize)
+        else sprintf("%d(%%rbp)", wordSize * 2 + (-1 - i) * wordSize)
+      fi
 
-    | M (x)      -> sprintf ("%s(%rip)", x)
-    | L (i@#val) -> sprintf ("$%d", i)
-    | L (i@#str) -> sprintf ("%s", i)
-    | I (0, x)   -> sprintf ("(%s)", opndString (x))
-    | I (n, x)   -> sprintf ("%d(%s)", n, opndString (x))
+      | M (x)      -> sprintf("%s(%rip)", x)
+      | L (i@#val) -> sprintf("$%d", i)
+      | L (i@#str) -> sprintf("%s", i)
+      | I (0, x)   -> sprintf("(%s)", opndString(x))
+      | I (n, x)   -> sprintf("%d(%s)", n, opndString(x))
     esac
   }
-  
+
   case insn of
-    Cltd               -> "\tcqo\n"
-  | Set   (suf, s)     -> sprintf ("\tset%s\t%s\n", suf, s)
-  | Sal   (s)          -> sprintf ("\tsalq\t%s\n", s)
-  | IDiv  (s1)         -> sprintf ("\tidivq\t%s\n", opndString (s1))
-  | Binop (op, s1, s2) -> sprintf ("\t%s\t%s,\t%s\n", binopString (op), opndString (s1), opndString (s2))
-  | Mov   (s1, s2)     -> sprintf ("\tmovq\t%s,\t%s\n", opndString (s1), opndString (s2))
-  | Lea   (s1, s2)     -> sprintf ("\tleaq\t%s,\t%s\n", opndString (s1), opndString (s2))
-  | Push  (s)          -> sprintf ("\tpushq\t%s\n", opndString (s))
-  | Pop   (s)          -> sprintf ("\tpopq\t%s\n", opndString (s))
-  | Ret                -> "\tret\n"
-  | Call  (p)          -> sprintf ("\tcall\t%s\n", p)
-  | Label (l)          -> sprintf ("%s:\n", l)
-  | Jmp   (l)          -> sprintf ("\tjmp\t%s\n", l)
-  | CJmp  (c, l)       -> sprintf ("\tj%s\t%s\n", c, l)
-  | Meta  (m)          -> m
+      Cltd               -> "\tcqo\n"
+    | Set   (suf, s)     -> sprintf("\tset%s\t%s\n", suf, s)
+    | Sal   (s)          -> sprintf("\tsalq\t%s\n", s)
+    | IDiv  (s1)         -> sprintf("\tidivq\t%s\n", opndString(s1))
+    | Binop (op, s1, s2) -> sprintf("\t%s\t%s,\t%s\n", binopString(op), opndString(s1), opndString(s2))
+    | Mov   (s1, s2)     -> sprintf("\tmovq\t%s,\t%s\n", opndString(s1), opndString(s2))
+    | Lea   (s1, s2)     -> sprintf("\tleaq\t%s,\t%s\n", opndString(s1), opndString(s2))
+    | Push  (s)          -> sprintf("\tpushq\t%s\n", opndString(s))
+    | Pop   (s)          -> sprintf("\tpopq\t%s\n", opndString(s))
+    | Ret                -> "\tret\n"
+    | Call  (p)          -> sprintf("\tcall\t%s\n", p)
+    | Label (l)          -> sprintf("%s:\n", l)
+    | Jmp   (l)          -> sprintf("\tjmp\t%s\n", l)
+    | CJmp  (c, l)       -> sprintf("\tj%s\t%s\n", c, l)
+    | Meta  (m)          -> m
   esac
 }
 
@@ -123,381 +123,446 @@ fun insnString (insn) {
 --    a barrier condition (set up right after an unconditional jump is interpreter)
 --    a stack map which maps labels to symbolic stacks
 
-fun makeEnv (stack, stackSlots, globals, barrier, stackMap, fLabel, nLocals) {
-  -- Returns an internal name for a global variable
-  fun globalName (name) {
+fun makeEnv(stack, stackSlots, globals, barrier, stackMap, fLabel, nLocals) {
+-- Returns an internal name for a global variable
+  fun globalName(name) {
     "global_" ++ name
   }
 
   -- Returns a string representation of the environment
-  fun envString () {
-    sprintf ("Stack     : %s\nStackSlots: %d\nGlobals   : %s\n", stack.string, stackSlots, elements (globals).string)
+  fun envString() {
+    sprintf("Stack     : %s\nStackSlots: %d\nGlobals   : %s\n", stack.string, stackSlots, elements(globals).string)
   }
-  
+
   -- Allocates a new position on the symbolic stack;
   -- returns a pair: a location for allocated item and
   -- an updated environment
-  fun allocate () {
-    case 
+  fun allocate() {
+    case
       case stack of
-        {}        -> [rbx, 0]
-      | S (n) : _ -> [S (n+1), n+2]
-      | R (n) : _ -> if n < nRegs then [R (n+1), stackSlots] else [S (nLocals), nLocals + 1] fi
-      | _         -> [S (nLocals), nLocals + 1]
+          { }       -> [rbx, 0]
+        | S (n) : _ -> [S(n + 1), n + 2]
+        | R (n) : _ -> if n < nRegs then [R(n + 1), stackSlots] else [S(nLocals), nLocals + 1] fi
+        | _         -> [S(nLocals), nLocals + 1]
       esac
-    of [x, n] -> [x, makeEnv (x : stack, if n > stackSlots then n else stackSlots fi, globals, barrier, stackMap, fLabel, nLocals)]esac
+    of [x, n] -> [x, makeEnv(x:stack, if n > stackSlots then n else stackSlots fi, globals, barrier, stackMap, fLabel, nLocals)]esac
   }
 
   -- Pushes an item on the symbolic state; returns an updated envirtonment
-  fun push (y) {
-    makeEnv (y : stack, stackSlots, globals, barrier, stackMap, fLabel, nLocals)
+  fun push(y) {
+    makeEnv(y:stack, stackSlots, globals, barrier, stackMap, fLabel, nLocals)
   }
 
   -- Pops one item from the symbolic stack; returns a pair: a popped
   -- item and an updated environment
-  fun pop () {
+  fun pop() {
     case stack of
-      x : stack -> [x, makeEnv (stack, stackSlots, globals, barrier, stackMap, fLabel, nLocals)]
+      x : stack -> [x, makeEnv(stack, stackSlots, globals, barrier, stackMap, fLabel, nLocals)]
     esac
   }
 
   -- Pops two items from the symbolic stack; returns a triple:
   -- popped items and an undated environment
-  fun pop2 () {
+  fun pop2() {
     case stack of
-      x : y : stack -> [x, y, makeEnv (stack, stackSlots, globals, barrier, stackMap, fLabel, nLocals)]
+      x : y : stack -> [x, y, makeEnv(stack, stackSlots, globals, barrier, stackMap, fLabel, nLocals)]
     esac
   }
 
   -- Peeks the top of the symbolic stack
-  fun peek () {
+  fun peek() {
     stack.fst
   }
-  
+
   -- Adds a global variable; returns an updated environment
-  fun addGlobal (name) {
-    makeEnv (stack, stackSlots, addSet (globals, globalName (name)), barrier, stackMap, fLabel, nLocals)
+  fun addGlobal(name) {
+    makeEnv(stack, stackSlots, addSet(globals, globalName(name)), barrier, stackMap, fLabel, nLocals)
   }
 
   -- References an allocation
-  fun loc (alloc) {
+  fun loc(alloc) {
     case alloc of
-      Glb (x) -> M (globalName (x))
-    | Arg (i) -> S (-1-i)
-    | Loc (i) -> S (i)
+        Glb (x) -> M(globalName(x))
+      | Arg (i) -> S(-1 - i)
+      | Loc (i) -> S(i)
     esac
   }
-  
+
   -- Gets a list of global variables from the environment
-  fun getGlobals () {
+  fun getGlobals() {
     globals.elements
   }
 
   -- Gets a maximal stack size from the environment
-  fun getStackSize () {
+  fun getStackSize() {
     stackSlots
   }
 
   -- Gets barrier condition
-  fun isBarrier () {
+  fun isBarrier() {
     barrier
   }
 
   -- Sets barrier condition
-  fun setBarrier () {
-    makeEnv (stack, stackSlots, globals, true, stackMap, fLabel, nLocals)
+  fun setBarrier() {
+    makeEnv(stack, stackSlots, globals, true, stackMap, fLabel, nLocals)
   }
 
   -- Associates the current symbolic state with a label
-  fun setStack (l) {
-    makeEnv (stack, stackSlots, globals, false, addMap (stackMap, l, stack), fLabel, nLocals)
+  fun setStack(l) {
+    makeEnv(stack, stackSlots, globals, false, addMap(stackMap, l, stack), fLabel, nLocals)
   }
 
   -- Retrieves a stack for a label
-  fun retrieveStack (l) {
-    case findMap (stackMap, l) of
-      None         -> makeEnv (stack, stackSlots, globals, false, stackMap, fLabel, nLocals)
-    | Some (stack) -> makeEnv (stack, stackSlots, globals, false, stackMap, fLabel, nLocals)
+  fun retrieveStack(l) {
+    case findMap(stackMap, l) of
+        None         -> makeEnv(stack, stackSlots, globals, false, stackMap, fLabel, nLocals)
+      | Some (stack) -> makeEnv(stack, stackSlots, globals, false, stackMap, fLabel, nLocals)
     esac
   }
 
   -- Sets the label of current function
-  fun enterFunction (fLabel, nl) {
-    makeEnv (stack, stackSlots, globals, false, stackMap, fLabel, nl)
+  fun enterFunction(fLabel, nl) {
+    makeEnv(stack, stackSlots, globals, false, stackMap, fLabel, nl)
   }
 
   -- Gets the label of current function
-  fun currentFunction () {
+  fun currentFunction() {
     fLabel
   }
 
   -- Gets the list of live registers past given symbolic stack depth
-  fun liveRegisters (depth) {
-    fun inner (d, acc, st) {
+  fun liveRegisters(depth) {
+    fun inner(d, acc, st) {
       case st of
-        {}             -> acc
-      | (r@R (_)) : tl -> inner (d+1, if d >= depth then r : acc else acc fi, tl)
-      | _         : tl -> inner (d+1, acc, tl)
+          { }            -> acc
+        | (r@R (_)) : tl -> inner(d + 1, if d >= depth then r:acc else acc fi, tl)
+        | _ : tl         -> inner(d + 1, acc, tl)
       esac
     }
 
-    inner (0, {}, stack)
+    inner(0, { }, stack)
   }
 
-   -- Gets a local static size for the current function
-  fun staticSize () {
+  -- Gets a local static size for the current function
+  fun staticSize() {
     nLocals + stackSlots
   }
 
   [envString,
-   allocate,
-   push,
-   pop,
-   pop2,
-   addGlobal,
-   loc,
-   getGlobals,
-   getStackSize,
-   peek,
-   isBarrier,
-   setBarrier,
-   setStack,
-   retrieveStack,
-   enterFunction,
-   currentFunction,
-   liveRegisters,
-   staticSize]
+    allocate,
+    push,
+    pop,
+    pop2,
+    addGlobal,
+    loc,
+    getGlobals,
+    getStackSize,
+    peek,
+    isBarrier,
+    setBarrier,
+    setStack,
+    retrieveStack,
+    enterFunction,
+    currentFunction,
+    liveRegisters,
+    staticSize]
 }
 
 -- Exported accessors
-fun envString (env) {
-  env [0] ()
+fun envString(env) {
+  env [0]()
 }
 
-fun allocate (env) {
-  env [1] ()
+fun allocate(env) {
+  env [1]()
 }
 
-fun push (env, x) {
-  env [2] (x)
+fun push(env, x) {
+  env [2](x)
 }
 
-fun pop (env) {
-  env [3] ()
+fun pop(env) {
+  env [3]()
 }
 
-fun pop2 (env) {
-  env [4] ()
+fun pop2(env) {
+  env [4]()
 }
 
-fun addGlobal (env, name) {
-  env [5] (name)
+fun addGlobal(env, name) {
+  env [5](name)
 }
 
-fun loc (env, name) {
-  env [6] (name)
+fun loc(env, name) {
+  env [6](name)
 }
 
-fun getGlobals (env) {
-  env [7] ()
+fun getGlobals(env) {
+  env [7]()
 }
 
-fun getStackSize (env) {
-  env [8] ()
+fun getStackSize(env) {
+  env [8]()
 }
 
-fun peek (env) {
-  env [9] ()
+fun peek(env) {
+  env [9]()
 }
 
-fun isBarrier (env) {
-  env [10] ()
+fun isBarrier(env) {
+  env [10]()
 }
 
-fun setBarrier (env) {
-  env [11] ()
+fun setBarrier(env) {
+  env [11]()
 }
 
-fun setStack (env, l) {
-  env [12] (l)
+fun setStack(env, l) {
+  env [12](l)
 }
 
-fun retrieveStack (env, l) {
-  env [13] (l)
+fun retrieveStack(env, l) {
+  env [13](l)
 }
 
-fun enterFunction (env, fLabel, nL) {
-  env [14] (fLabel, nL)
+fun enterFunction(env, fLabel, nL) {
+  env [14](fLabel, nL)
 }
 
-fun currentFunction (env) {
-  env [15] ()
+fun currentFunction(env) {
+  env [15]()
 }
 
-fun liveRegisters (env, depth) {
-  env [16] (depth)
+fun liveRegisters(env, depth) {
+  env [16](depth)
 }
 
-fun staticSize (env) {
-  env [17] ()
+fun staticSize(env) {
+  env [17]()
 }
 
 -- Creates an initial environment
-fun initEnv () {
-  makeEnv (0, emptySet (compare), emptySet (compare), false, emptyMap (compare), "", 1)
+fun initEnv() {
+  makeEnv(0, emptySet(compare), emptySet(compare), false, emptyMap(compare), "", 1)
 }
 
 -- Codegeneration helper functions
 -- Generates code section
-fun codeSection (text) {
-  singletonBuffer (Meta ("\t.text\n")) <+> text
+fun codeSection(text) {
+  singletonBuffer(Meta("\t.text\n")) <+> text
 }
 
 -- Generates data section
-fun dataSection (text) {
-  singletonBuffer (Meta ("\t.data\n")) <+> text
+fun dataSection(text) {
+  singletonBuffer(Meta("\t.data\n")) <+> text
 }
 
 -- Generates data definition
-fun dataDef (name) {
-  Meta (sprintf ("%s:\t.quad\t0\n", name))
+fun dataDef(name) {
+  Meta(sprintf("%s:\t.quad\t0\n", name))
 }
 
 -- Generates function prologue
-fun prologue (fLabel) {
-  singletonBuffer (Push  (rbp)) <+
-  Mov   (rsp, rbp) <+
-  Binop ("-", L (sprintf ("$%s_SIZE", fLabel)), rsp)  
+fun prologue(fLabel) {
+  singletonBuffer(Push(rbp)) <+
+    Mov(rsp, rbp) <+
+    Binop("-", L(sprintf("$%s_SIZE", fLabel)), rsp)
 }
 
-fun epilogue (env) {
-  var metaDef = Meta (sprintf ("\t.set\t%s_SIZE,\t%d\n", env.currentFunction, env.staticSize * wordSize));
+fun epilogue(env) {
+  var metaDef = Meta(sprintf("\t.set\t%s_SIZE,\t%d\n", env.currentFunction, env.staticSize * wordSize));
 
-  if compare (env.currentFunction, "main") == 0
-  then [env, singletonBuffer (Mov (rbp, rsp)) <+ Pop (rbp) <+ Binop ("^", rax, rax) <+ Ret <+ metaDef]
-  else case env.pop of
-         [y, env] -> [env, singletonBuffer (Mov (rbp, rsp)) <+ Pop (rbp) <+ Mov (y, rax) <+ Ret <+ metaDef]
-       esac
+  if compare(env.currentFunction, "main") == 0
+    then [env, singletonBuffer(Mov(rbp, rsp)) <+ Pop(rbp) <+ Binop("^", rax, rax) <+ Ret <+ metaDef]
+    else case env.pop of
+      [y, env] -> [env, singletonBuffer(Mov(rbp, rsp)) <+ Pop(rbp) <+ Mov(y, rax) <+ Ret <+ metaDef]
+    esac
   fi
 }
 
 -- Checks if an operand resides on a stack
-fun stackOpnd (opnd) {
+fun stackOpnd(opnd) {
   case opnd of
-    S (_) -> true
-  | _     -> false
-  esac      
+      S (_) -> true
+    | _     -> false
+  esac
 }
 
 -- Checks if an operand resides in memory
-fun memOpnd (opnd) {
+fun memOpnd(opnd) {
   case opnd of
-    S (_) -> true
-  | M (_) -> true
-  | _     -> false
+      S (_) -> true
+    | M (_) -> true
+    | _     -> false
   esac
 }
 
 -- Generates a move between locations, using
 -- intermediate register if needed
-fun move (from, to) {
-  if memOpnd (from) && memOpnd (to)
-  then singletonBuffer (Mov (from, rax)) <+ Mov (rax, to)
-  else singletonBuffer (Mov (from, to))
+fun move(from, to) {
+  if memOpnd(from) && memOpnd(to)
+    then singletonBuffer(Mov(from, rax)) <+ Mov(rax, to)
+    else singletonBuffer(Mov(from, to))
   fi
 }
 
 -- Gets push/pops for live registers
-fun savecode (env, nA) {
-  unzip $ map (fun (r) {[Push (r), Pop (r)]}, env.liveRegisters (nA)) 
+fun savecode(env, nA) {
+  unzip $ map(fun (r) { [Push(r), Pop(r)] }, env.liveRegisters(nA))
 }
 
 -- Gets a suffix for Set instruction from
 -- source language comparison operator
-fun suffix (op) {
+fun suffix(op) {
   case op of
-    "<"  -> "l"
-  | "<=" -> "le"
-  | "==" -> "e"
-  | "!=" -> "ne"
-  | ">=" -> "ge"
-  | ">"  -> "g"
+      "<"  -> "l"
+    | "<=" -> "le"
+    | "==" -> "e"
+    | "!=" -> "ne"
+    | ">=" -> "ge"
+    | ">"  -> "g"
+  esac
+}
+
+fun myBinop(codeOld, x, y, op, s) {
+  var code = codeOld <+> singletonBuffer(Mov(y, rax));
+  case op of
+      "+"  -> code <+ Binop(op, x, rax) <+ Mov(rax, s)
+    | "-"  -> code <+ Binop(op, x, rax) <+ Mov(rax, s)
+    | "*"  -> code <+ Binop(op, x, rax) <+ Mov(rax, s)
+    | "/"  -> code <+ Cltd <+ IDiv(x) <+ Mov(rax, s)
+    | "%"  -> code <+ Cltd <+ IDiv(x) <+ Mov(rdx, s)
+    | "<"  -> code <+ Binop("^", rdx, rdx) <+ Binop("cmp", x, rax) <+ Set(suffix(op), "%dl") <+ Mov(rdx, s)
+    | ">"  -> code <+ Binop("^", rdx, rdx) <+ Binop("cmp", x, rax) <+ Set(suffix(op), "%dl") <+ Mov(rdx, s)
+    | "<=" -> code <+ Binop("^", rdx, rdx) <+ Binop("cmp", x, rax) <+ Set(suffix(op), "%dl") <+ Mov(rdx, s)
+    | ">=" -> code <+ Binop("^", rdx, rdx) <+ Binop("cmp", x, rax) <+ Set(suffix(op), "%dl") <+ Mov(rdx, s)
+    | "==" -> code <+ Binop("^", rdx, rdx) <+ Binop("cmp", x, rax) <+ Set(suffix(op), "%dl") <+ Mov(rdx, s)
+    | "!=" -> code <+ Binop("^", rdx, rdx) <+ Binop("cmp", x, rax) <+ Set(suffix(op), "%dl") <+ Mov(rdx, s)
+    | "&&" -> code
+      <+ Binop("^", rax, rax) <+ Binop("cmp", rax, y) <+ Set(suffix("!="), "%al")
+      <+ Binop("^", rdx, rdx) <+ Binop("cmp", rdx, x) <+ Set(suffix("!="), "%dl")
+      <+ Binop(op, rdx, rax) <+ Mov(rax, s)
+    | "!!" -> code
+      <+ Binop("^", rax, rax) <+ Binop("cmp", rax, y) <+ Set(suffix("!="), "%al")
+      <+ Binop("^", rdx, rdx) <+ Binop("cmp", rdx, x) <+ Set(suffix("!="), "%dl")
+      <+ Binop(op, rdx, rax) <+ Mov(rax, s)
   esac
 }
 
 -- Compiles stack machine code into a list of x86 instructions. Takes an environment
 -- and stack machine code, returns an updated environment and x86 code.
-fun compile (env, code) {
-  foldl (
+fun compile(env, code) {
+  foldl(
     fun ([env, scode], i) {
-      var code = scode <+ Meta ("# " ++ showSMInsn (i) ++ "\n");
-      
+      var code = scode <+ Meta("# " ++ showSMInsn(i) ++ "\n");
+
       case i of
-        READ ->
-	  case savecode (env, 0) of
-	    [pushRegs, popRegs] ->
-               case env.allocate of
-                 [s, env] -> [env, code <+>
-		                   listBuffer (pushRegs) <+
-				   Call ("Lread") <+>
-				   listBuffer (reverse (popRegs)) <+
-				   Mov (rax, s)]
-	       esac
-          esac             
-      | WRITE ->
-          case savecode (env, 1) of
-	    [pushRegs, popRegs] ->
-               case env.pop of
-                 [s, env] -> [env, code <+>
-		                   listBuffer (pushRegs) <+
-				   Mov (s, rdi) <+
-				   Call ("Lwrite") <+>
-				   listBuffer (reverse (popRegs))]
-	       esac
+        READ  ->
+          case savecode(env, 0) of
+            [pushRegs, popRegs] ->
+              case env.allocate of
+                [s, env] -> [env, code <+>
+                  listBuffer(pushRegs) <+
+                  Call("Lread") <+>
+                  listBuffer(reverse(popRegs)) <+
+                  Mov(rax, s)]
+              esac
           esac
-      (* Assignment
-        
-         -- Some guidelines for generating function calls:
-         --
-         -- 1. generate instructions to save live registers on the X86 stack (use
-         --    env.liveRegisters (number of arguments);
-         -- 2. generate instructions to move actual parameters from the symbolic
-         --    stack to the hardware one;
-         -- 3. generate the call itself;
-         -- 4. discard the actual parameters from the stack;
-         -- 5. restore saved live registers.
-         --
-         -- Some guidelines for generating functions:
-         --
-         -- 1. generate proper prologue for BEGIN instruction (use "prologue" helper); use
-         --    env.enterFunction to create a proper environment;
-         -- 2. generate epilogue for END instruction.
-               
-        | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
-           End *)
+      | WRITE ->
+          case savecode(env, 1) of
+            [pushRegs, popRegs] ->
+              case env.pop of
+                [s, env] -> [env, code <+>
+                  listBuffer(pushRegs) <+
+                  Mov(s, rdi) <+
+                  Call("Lwrite") <+>
+                  listBuffer(reverse(popRegs))]
+              esac
+          esac
+      | LD (x) ->
+          case env.allocate of
+            [s, env] -> [env, code <+  Mov (env.loc(x), s)]
+          esac
+      | LDA (x) ->
+          case env.allocate of
+            [s, env] -> [env, code <+ Lea(env.loc(x), s)]
+          esac
+      | ST (x) -> [env, code <+ Mov (env.peek, env.loc (x))]
+      | STI    ->
+          case env.pop2 of
+            [x, y, env] ->
+              case env.allocate of
+                [s, env] -> [env, code <+ Mov(x, I(0, y)) <+ Mov(x, s)]
+              esac
+          esac
+      | CONST(x) ->
+          case env.allocate of
+            [s, env] -> [env, code <+ Mov (L (x), s)]
+          esac
+      | BINOP (op) ->
+          case env.pop2 of
+            [x, y, env] ->
+              case env.allocate of
+                [s, env] -> [env, myBinop(code, x, y, op, s)]
+              esac
+          esac
+      | LABEL (l) ->
+          if isBarrier(env)
+            then [retrieveStack(env, l), code <+ Label(l)]
+            else [env, code <+ Label(l)]
+          fi
+      | JMP (l)     -> [env, code <+ Jmp(l)]
+      | CJMP (c, l) ->
+          case env.pop of
+            [s, env] -> [setBarrier(env.setStack(l)), code <+ Binop ("cmp", L(0), s) <+ CJmp (c, l)]
+          esac
+      | DROP        -> case env.pop of [_, env] -> [env, code] esac
+      | CALL (f, na) ->
+        case savecode(env, na) of
+          [pushR, popR] ->
+            code := code <+> listBuffer(pushR);
+            i := na;
+            while i > 0 do
+              case env.pop of
+                [elem, updEnv] ->
+                  code := code <+ Push(elem);
+                  env := updEnv
+              esac;
+              i := i - 1
+            od;
+            code := code <+ Call(f) <+ Binop("+", L(wordSize * na), rsp) <+> listBuffer(reverse(popR));
+            case env.allocate of
+              [s, env] -> [env, code <+ Mov(rax, s)]
+            esac
         esac
+      | BEGIN(l, na, nl) -> [enterFunction(env, l, nl), code <+> prologue(l)]
+      | END -> case epilogue(env) of [env, epilCode] -> [env, code <+> epilCode] esac
+      | GLOBAL(name) -> [env.addGlobal(name), code]
+      | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
+      esac
     }, [env, emptyBuffer ()], code)
 }
 
 -- A top-level codegeneration function. Takes a driver's environment and a stack machine program,
 -- compiles the program into machine code, and compiles the machine code into an executable
-public fun compileX86 (args, code) {
-  case compile (initEnv (), code) of
+public fun compileX86(args, code) {
+  case compile(initEnv(), code) of
     [env, code] ->
-       var asmFile = args.getBaseName ++ ".s",
-           runtime = case getEnv ("LAMA_RUNTIME") of
-                       #val  -> "../runtime64/"
-                     | path  -> path
-                     esac ++ "/runtime.o";
-       
-       fwrite (asmFile,
-               map (insnString, 
-                    getBuffer $
-                      singletonBuffer (Meta ("\t.global\tmain\n")) <+>
-                      dataSection (listBuffer $ map (dataDef, getGlobals (env))) <+>
-		      codeSection (code)
-                    ).stringcat);
-                    
-       system ({"gcc -g -o ", args.getBaseName, " ", runtime, " ", asmFile}.stringcat)
+      var asmFile = args.getBaseName ++ ".s",
+          runtime = case getEnv("LAMA_RUNTIME") of
+            #val -> "../runtime64/"
+          | path -> path
+        esac ++ "/runtime.o";
+
+      fwrite(asmFile,
+        map(insnString,
+          getBuffer $
+            singletonBuffer(Meta("\t.global\tmain\n")) <+>
+            dataSection(listBuffer $ map(dataDef, getGlobals(env))) <+>
+            codeSection(code)
+        ).stringcat);
+
+      system({ "gcc -g -o ", args.getBaseName, " ", runtime, " ", asmFile }.stringcat)
   esac
 }
