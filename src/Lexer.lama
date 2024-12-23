@@ -1,5 +1,4 @@
 -- Lexical analysis using Matcher
-
 import Matcher;
 import Ostap;
 import Fun;
@@ -7,35 +6,36 @@ import Collection;
 import List;
 
 -- A set of all keywords
-var keywords = foldl (addSet, emptySet (compare), {"read", "write", "skip"});
-
+var keywords = foldl(addSet, emptySet(compare), {"read", "write", "skip"});
 -- Regular expression definitions
-var rWhiteSpace  = createRegexp ("\\(\\([ \n\r\t]*\\)\\|\\(--[^\n]*[ \n\r\t]*\\)\\)*", "whitespace"),
-    rDecimal     = createRegexp ("-?[0-9]+", "decimal constant"),
-    rLident      = createRegexp ("[a-z][a-z_A-Z0-9]*", "lowercase identifier"),
-    rRead        = createRegexp ("read\\b", """read"""),
-    rWrite       = createRegexp ("write\\b", """write"""),
-    rSkip        = createRegexp ("skip\\b", """skip""");
-
-var whiteSpace = token (rWhiteSpace);
-
+var rWhiteSpace = createRegexp("\\(\\([ \n\r\t]*\\)\\|\\(--[^\n]*[ \n\r\t]*\\)\\)*", "whitespace"),
+    rDecimal    = createRegexp("-?[0-9]+", "decimal constant"),
+    rLident     = createRegexp("[a-z][a-z_A-Z0-9]*", "lowercase identifier"),
+    rRead       = createRegexp("read\\b", """read"""),
+    rWrite      = createRegexp("write\\b", """write"""),
+    rSkip       = createRegexp("skip\\b", """skip""");
+var whiteSpace = token(rWhiteSpace);
 -- Public parsers for concrete tokens
 -- Generic token parser; t is either a string or a regular expression
-public fun s (t) {memo $ whiteSpace |> lift (token (t))}
-
+public fun s (t) {
+   memo $ whiteSpace |> lift(token(t))
+}
 -- Some individual tokens
-public kRead    = s (rRead),
-       kWrite   = s (rWrite),
-       kSkip    = s (rSkip),
-       decimal  = s (rDecimal),
-       end      = memo $ whiteSpace |> lift (eof),
-       lident   = memo $       
-         whiteSpace |> lift (fun (k) {
-                                fun (s) {
-                                  k (case s.matchRegexp (rLident) of
-                                       a@Succ (v, _) -> if memSet (keywords, v) then Fail ("lowercase identifier expected", s.getLine, s.getCol) else a fi
-                                     | a             -> a
-                                     esac)
-                                }
-                              });
-
+public kRead   = s(rRead),
+       kWrite  = s(rWrite),
+       kSkip   = s(rSkip),
+       decimal = s(rDecimal),
+       end     = memo $ whiteSpace |> lift(eof),
+       lident  = memo $ whiteSpace |> lift(fun (k) {
+                                            fun (s) {
+                                               k(case s.matchRegexp(rLident) of
+                                                   a@Succ(v, _) -> if memSet(keywords, v)
+                                                                   then Fail("lowercase identifier expected",
+                                                                             s.getLine,
+                                                                             s.getCol)
+                                                                   else a
+                                                                   fi
+                                                 | a            -> a
+                                                 esac)
+                                            }
+                                         });
