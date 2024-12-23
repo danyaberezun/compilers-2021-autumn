@@ -105,23 +105,44 @@ fun distributeScope (expr, exprConstructor) {
   esac
 }
 
-var primary    = memo $ eta syntax (
-                                      -- decimal constant
-                                      loc=pos x=decimal                                 {fun (a) {assertValue (a, Const (stringInt (x)), loc)}}     |
+var primary = memo $ eta syntax (
+  -- decimal constant
+  loc=pos x=decimal { fun (a) { assertValue(a, Const(stringInt(x)), loc) } } |
 
-                                      -- identifier
-                                      x=lident args=inbr[s("("), list0(syntax(e=exp {e(Val)})), s(")")]? {fun (a) {
-                                                                                                            case args of
-                                                                                                              None -> case a of
-                                                                                                                        Ref  -> Ref (x)
-                                                                                                                      | Void -> Ignore (Var (x))
-                                                                                                                      | _    -> Var (x)
-                                                                                                                      esac
-                                                                                                            | Some (args) -> assertValue (a, Call (x, args))
-                                                                                                            esac
-                                                                                                         }} |
-(* Assignment *)
-                                      $(failure ("the rest of primary parsing in not implemented\n"))),
+  -- identifier
+  x=lident args=inbr[s("("), list0(syntax(e=exp { e(Val) })), s(")")]? { fun (a) {
+    case args of
+        None        -> case a of
+            Ref  -> Ref(x)
+          | Void -> Ignore(Var(x))
+          | _    -> Var(x)
+        esac
+      | Some (args) -> assertValue(a, Call(x, args), pos)
+    esac
+  } } |
+  (* Assignment *)
+  e=inbr[s("("), scopeExpr, s(")")] { e }                  |
+  loc = pos kSkip { fun (a) { assertVoid(a, Skip, loc) } } |
+
+  loc = pos kWrite e=inbr[s("("), exp, s(")")] {
+    fun (a) { assertVoid (a, Write (e (Val)), loc) }
+  } |
+  loc = pos kRead e=inbr[s("("), lident, s(")")] {
+    fun (a) { assertVoid (a, Read (e), loc) }
+  } |
+  loc = pos kIf e=exp kThen s=scopeExpr els=elseSyntax {
+    fun (a) { If( e(Val), s(a), els(a) ) }
+  } |
+  loc = pos kWhile e=exp kDo s=scopeExpr kOd {
+    fun (a) { assertVoid(a, While( e(Val), s(Void) ), loc) }
+  } |
+  loc = pos kDo s=scopeExpr kWhile e=exp kOd {
+    fun (a) { assertVoid(a, distributeScope (s(Void), fun (sv) {DoWhile( sv, e(Val) )}), loc) }
+  } |
+  loc = pos kFor s1=scopeExpr s[","] e=exp s[","] s2=exp kDo s3=exp kOd {
+    fun (a) { assertVoid(a, distributeScope(s1(Void), fun (s1e) { Seq( s1e, While(e(Val), Seq(s3(Void), s2(Void)))) }), loc) }
+  } ),
+--   $(failure("the rest of primary parsing in not implemented\n"))),
 (* End *)
       basic      = memo $ eta (expr ({[Right, {[s (":="),
                                                 fun (l, loc, r) {
@@ -153,5 +174,10 @@ var primary    = memo $ eta syntax (
                                      ),                                    
       exp        = memo $ eta syntax (basic | s1=basic s[";"] s2=exp {fun (a) {Seq (s1 (Void), s2 (a))}});
 
+var elseSyntax = memo $ eta syntax (
+  loc=pos      kFi { fun (a) { assertVoid(a, Skip, loc) } } |
+  kElse st=exp kFi { st }                                   |
+  kElif e=exp  kThen s=exp els=elseSyntax { fun(a) { If( e(Val), s(a), els(a) ) } }
+);
 -- Public top-level parser
 public parse = syntax (s=scopeExpr {s (Void)});

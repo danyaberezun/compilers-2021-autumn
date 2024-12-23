@@ -94,9 +94,67 @@ fun evalList (c, exprs) {
   esac
 }
 
+fun evalArgs(args, s) {
+  case args of
+      [argName, argValue]:ags -> evalArgs(ags, s.addName(argName, argValue))
+    | _ -> s
+  esac
+}
+
+fun evalScope(defs, s) {
+  case defs of
+      Var (strr)             :ds -> evalScope(ds, s.addNames(strr))
+    | Fun (strr, args, body) :ds -> evalScope(ds, s.addFunction(strr, args, body))
+    | _ -> s
+  esac
+}
+
 (* Assignment *)
 fun eval (c@[s, w], expr) {
-  failure ("evalExpr not implemented\n")
+  case expr of
+      Assn    (e1, e2) ->
+        case evalList(c, {e1, e2}) of
+          [[s1, w1], {Ref(x), Val(e)}] -> [[s1 <- [x, Val(e)], w1], Val(e)]
+        esac
+    | Seq     (e1, e2)     -> eval(eval(c, e1).fst, e2)
+    | Skip                 -> [c, Void]
+    | Read    (strr)       -> case readWorld(w) of [z1, w1] -> [[s <- [strr, Val(z1)], w1], Void] esac
+    | Write   (e)          -> case eval(c, e) of [[s1, w1], Val(x)] -> [[s1, writeWorld(x, w1)], Void] esac
+    | If      (e1, e2, e3) ->
+        case eval (c, e1) of
+            [c, Val (0)] -> eval(c, e3)
+          | [c, Val (n)] -> eval(c, e2)
+        esac
+    | While   (e1, e2)     ->
+        case eval(c, e1) of
+            [c1, Val(0)] -> [c1, Void]
+          | [c1, Val(_)] -> eval(eval(c1, e2).fst, expr)
+        esac
+    | DoWhile (e1, e2)     -> eval(eval(c, e1).fst, While(e2, e1))
+    | Var     (strr)       -> [c, s.lookup(strr)]
+    | Ref     (strr)       -> [c, Ref (strr)]
+    | Const   (n)          -> [c, Val (n)]
+    | Binop   (op, e1, e2)  ->
+        case evalList(c, {e1, e2}) of
+          [c1, { Val(lhs), Val(rhs) }] -> [c1, Val(evalOp(op, lhs, rhs))]
+        esac
+    | Scope   (defs, e)    ->
+        case eval([evalScope(defs, s.enterScope), w], e) of
+          [[s1, w1], x1] -> [[s1.leaveScope, w1], x1]
+        esac
+    | Call    (strr, es)   ->
+        s.checkFun(strr);
+        case s.lookup(strr) of
+          Fun (args, body) ->
+            case evalList(c, es) of
+              [[s1, w1], vs] ->
+                case eval([evalArgs(zip(args, vs), s1.enterFunction), w1], body) of
+                  [[s2, w2], x2] -> [[s1.leaveFunction(s2.getGlobal), w2], x2]
+                esac
+            esac
+        esac
+    | Ignore  (expr)       -> [eval(c, expr).fst, Void]
+  esac
 }
 (* End *)
 
