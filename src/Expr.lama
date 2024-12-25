@@ -63,8 +63,56 @@ fun evalList (c, exprs) {
   esac
 }
 
-fun eval (c@[s, w], expr) {
-  failure ("evalExpr not implemented\n")
+-- Value 
+--   = Unit
+--   | Ref (string)  
+--   | int
+
+fun eval (c@[vars, io], expr) {
+  case expr of
+    Assn    (lvalue, rvalue) -> 
+      case evalList (c, {lvalue, rvalue}) of
+        [c@[vars, io], {Ref (name), value}] -> [[vars <- [name, value], io], value] 
+      esac         
+  | Seq     (expr1, expr2) -> 
+      case evalList (c, {expr1, expr2}) of
+        [c, {_, value}] -> [c, value] 
+      esac    
+  | Skip -> [c, Unit]
+  | Read    (name) -> 
+      case readWorld (io) of
+        [value, io] -> [[vars <- [name, value], io], Unit]
+      esac              
+  | Write   (expr) -> 
+      case eval (c, expr) of
+        [c@[vars, io], value] -> [[vars, writeWorld (value, io)], Unit]
+      esac        
+  | If      (cond, th, el) -> 
+      case eval (c, cond) of
+        [c, 0] -> eval (c, el) 
+      | [c, v] -> eval (c, th)
+      esac
+  | While   (cond, expr) -> 
+      case eval (c, cond) of
+        [c, 0] -> [c, Unit] 
+      | [c, _] -> 
+          case eval (c, expr) of
+            [c, _] -> eval (c, While (cond, expr))
+          esac
+      esac         
+  | DoWhile (expr, cond) -> eval (c, Seq (expr, While (cond, expr)))    
+  | Var     (name) -> [c, vars (name)]             
+  | Const   (v) -> [c, v]        
+  | Ref     (name) -> [c, Ref (name)]        
+  | Binop   (op, lhs, rhs) -> 
+      case evalList (c, {lhs, rhs}) of
+        [c, {lhs, rhs}] -> [c, evalOp (op, lhs, rhs)]
+      esac
+  | Ignore  (expr) -> 
+      case eval (c, expr) of
+        [c, _] -> [c, Unit]
+      esac 
+  esac
 }
 
 

@@ -64,7 +64,18 @@ var primary  = memo $ eta syntax (
                                                                                        | _    -> Var (x)
                                                                                        esac
                                                                                     }} |
-                                  $(failure ("the rest of primary parsing in not implemented\n"))),
+                                  loc=pos kSkip {fun (a) {assertVoid (a, Skip, loc)}} |
+                                  loc=pos kRead x=inbr[s("("), lident, s(")")] {fun (a) {assertVoid (a, Read (x), loc)}} | 
+                                  kWrite s["("] loc=pos e=exp s[")"] {fun (a) {assertVoid (a, Write (e (Val)), loc)}} | 
+                                  loc=pos kWhile cond=exp kDo body=exp kOd {fun (a) {assertVoid (a, While (cond (Val), body (Void)), loc)}} |
+                                  loc=pos kDo body=exp kWhile cond=exp kOd {fun (a) {assertVoid (a, DoWhile (body (Void), cond (Val)), loc)}} |
+                                  loc=pos kFor init=exp s[","] cond=exp s[","] each=exp kDo body=exp kOd {
+                                    fun (a) {assertVoid (a, Seq(init (Void), While (cond (Val), Seq (body (Void), each (Void)))), loc)}
+                                  } | 
+                                  kIf body=ifPart kFi {body} |
+                                  s["("] e=exp s[")"] {e}
+                                  ),
+    
     basic    = memo $ eta (expr ({[Right, {[s (":="),
                                             fun (l, loc, r) {
                                               fun (a) {assertValue (a, Assn (l (Ref), r (Val)), loc)}
@@ -76,7 +87,22 @@ var primary  = memo $ eta syntax (
                                   [Left , map (binop, {"*", "/", "%"})]
                                  },
                                  primary)),
-    exp      = memo $ eta syntax (basic | s1=basic s[";"] s2=exp {fun (a) {Seq (s1 (Void), s2 (a))}});
+    exp      = memo $ eta syntax (basic | s1=basic s[";"] s2=exp {fun (a) {Seq (s1 (Void), s2 (a))}}),
+    
+    ifPart = memo $ eta syntax (
+      cond=exp th=thenPart el=elsePart {fun (a) {If (cond (Val), th (a), el (a))}}
+    ),
+
+    thenPart = memo $ eta syntax (
+      kThen body=exp {body}
+    ),
+
+    elsePart = memo $ eta syntax (
+      loc=pos empty {fun (a) {assertVoid(a, Skip, loc)}}
+    | kElse body=exp {body}
+    | kElif body=ifPart {body}
+    );
+  
 
 -- Public top-level parser
 public parse = syntax (s=exp {s (Void)});

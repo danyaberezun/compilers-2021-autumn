@@ -377,8 +377,126 @@ fun compile (env, code) {
           case env.pop of
             [s, env] -> [env, code <+ Mov (s, rdi) <+ Call ("Lwrite")]
           esac
-      | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
-        esac
+      | BINOP (op)   ->
+          var op1 = case op of
+            "+" -> SBin ("+")
+          | "-" -> SBin ("-")
+          | "*" -> SBin ("*")  
+          | "/" -> Div
+          | "%" -> Mod
+          | "<" -> Cmp ("<")
+          | "<=" -> Cmp ("<=")
+          | "==" -> Cmp ("==")
+          | "!=" -> Cmp ("!=")
+          | ">=" -> Cmp (">=")
+          | ">" -> Cmp (">")
+          | "&&" -> And
+          | "!!" -> Or
+          esac; 
+
+          case env.pop2 of
+            [s1, s2, env] -> case op1 of 
+              SBin (op) ->
+                case env.allocate of
+                  [s, env] -> [env, 
+                    code <+ 
+                    Mov (s2, rax) <+ 
+                    Binop (op, s1, rax) <+ 
+                    Mov (rax, s)
+                  ]
+                esac
+            | Div -> 
+                case env.allocate of
+                  [s, env] -> [env, 
+                    code <+ 
+                    Mov (s2, rax) <+ 
+                    Cltd <+ 
+                    IDiv (s1) <+ 
+                    Mov (rax, s)
+                  ] 
+                esac
+            | Mod ->
+                case env.allocate of
+                  [s, env] -> [env, 
+                    code <+ 
+                    Mov (s2, rax) <+ 
+                    Cltd <+ 
+                    IDiv (s1) <+ 
+                    Mov (rdx, s)
+                  ] 
+                esac
+            | And ->
+                case env.allocate of
+                  [s, env] -> [env, 
+                    code <+ 
+                    Binop ("^", rdx, rdx) <+
+                    Binop ("cmp", L (0), s1) <+
+                    Set (suffix ("!="), "%dl") <+
+                    Binop ("^", rax, rax) <+
+                    Binop ("cmp", L (0), s2) <+
+                    Set (suffix ("!="), "%al") <+ 
+                    Binop ("&&", rdx, rax) <+
+                    Mov (rax, s)
+                  ]
+                esac 
+            | Or -> 
+                case env.allocate of
+                  [s, env] -> [env,
+                    code <+ 
+                    Mov (s2, rdx) <+
+                    Binop ("^", rax, rax) <+
+                    Binop ("!!", s1, rdx) <+
+                    Set (suffix("!="), "%al") <+
+                    Mov (rax, s)
+                  ] 
+                esac
+            | Cmp (op) -> 
+                case env.allocate of
+                  [s, env] -> [env, 
+                    code <+
+                    Binop ("^", rax, rax) <+
+                    Binop ("cmp", s1, s2) <+
+                    Set (suffix (op), "%al") <+
+                    Mov (rax, s)
+                  ] 
+                esac
+            esac 
+          esac
+      | LD    (x)    ->
+          case addGlobal(env, x).allocate of
+            [s, env] -> [env, code <+> move (env.loc (x), s)] 
+          esac
+      | LDA   (x)    -> 
+          case addGlobal(env, x).allocate of
+            [s, env] -> [env, code <+ Lea (env.loc (x), s)]
+          esac
+      | ST    (x)    -> 
+          case addGlobal(env, x) of
+            env -> [env, code <+> move (env.peek, env.loc (x))]
+          esac
+      | STI          -> 
+          case env.pop2 of
+            [v, ref, env] -> 
+              case env.allocate of
+                [s, env] -> [env, code <+> move (v, I (0, ref)) <+> move (v, s)]
+              esac
+          esac
+      | CONST (n)    -> 
+          case env.allocate of
+            [s, env] -> [env, code <+ Mov (L (n), s)]
+          esac
+      | LABEL (l)    -> [env.retrieveStack (l), code <+ Label (l)]
+      | JMP   (l)    -> [env.setStack (l), code <+ Jmp (l)]
+      | CJMP  (c, l) -> 
+          case env.pop of
+            [s, env] -> [env.setStack (l), code <+ Binop ("cmp", L (0), s) <+ CJmp (c, l)]  
+          esac
+      | DROP         -> 
+          case env.pop of
+            [_, env] -> [env, code]
+          esac
+      | _          -> failure ("%s not implemented", i.string)
+      esac
     }, [env, emptyBuffer ()], code)
 }
 
