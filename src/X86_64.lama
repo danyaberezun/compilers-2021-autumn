@@ -300,6 +300,28 @@ fun compile (env, code) {
           case env.pop of
             [s, env] -> [env, code <+ Mov (s, rdi) <+ Call ("Lwrite")]
           esac
+      | CONST (n) -> case env.allocate of [s, env] -> [env, code <+ Mov (L (n), s)] esac
+      | LD (x) -> case env.allocate of [s, env] -> [env, code <+> move (env.loc (x), s)] esac
+      | ST (x) -> case env.addGlobal (x).pop of [s, env] -> [env, code <+> move (s, env.loc (x))] esac
+      | BINOP (op) -> 
+          case env.pop2 of
+            [left, right, env] -> 
+              case env.allocate of
+                [res, env] -> 
+                  case op of 
+                  "/"  -> [env, code <+ Push (rdx) <+ Binop ("^", rdx, rdx) <+ Mov (right, rax) <+ IDiv (left) <+ Mov (rax, res) <+ Pop (rdx)]
+                  | "%"  -> [env, code <+ Push (rdx) <+ Binop ("^", rdx, rdx) <+ Mov (right, rax) <+ IDiv (left) <+ Mov (rdx, res) <+ Pop (rdx)]
+                  | "&&" -> [env, code <+ Mov (right, rax) <+ Binop (op, left, rax) <+ Binop ("!!", L (1), rax) <+ Mov (rax, res)]
+                  | "==" -> [env, code <+ Binop ("cmp", left, right) <+ Set ("e", "%al") <+ Mov (rax, res)]
+                  | "!=" -> [env, code <+ Binop ("cmp", left, right) <+ Set ("ne", "%al") <+ Mov (rax, res)]
+                  | "<"  -> [env, code <+ Binop ("cmp", left, right) <+ Set ("l", "%al") <+ Mov (rax, res)]
+                  | ">"  -> [env, code <+ Binop ("cmp", left, right) <+ Set ("g", "%al") <+ Mov (rax, res)]
+                  | "<=" -> [env, code <+ Binop ("cmp", left, right) <+ Set ("le", "%al") <+ Mov (rax, res)]
+                  | ">=" -> [env, code <+ Binop ("cmp", left, right) <+ Set ("ge", "%al") <+ Mov (rax, res)]
+                  | _   -> [env, code <+ Mov (right, rax) <+ Binop (op, left, rax) <+ Mov (rax, res)]
+                  esac 
+              esac 
+          esac
       | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
       esac
     }, [env, emptyBuffer ()], code)

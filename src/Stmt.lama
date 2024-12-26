@@ -17,9 +17,17 @@ import World;
 --        Write  (expr)             |
 
 fun eval (c, stmt) {
-  failure ("Stmt eval not implemented\n")
+  -- c = [ state, world ]
+  case stmt of
+    Assn (x, e) -> [c.fst <- [x, evalExpr(c.fst, e)], c.snd]
+  | Seq  (s1, s2) -> eval(eval(c, s1), s2)
+  | Skip -> c
+  | Read (x) -> case readWorld(c.snd) of
+      [v, w] -> [c.fst <- [x, v], w]
+    esac
+  | Write (e) -> [c.fst, writeWorld(evalExpr(c.fst, e), c.snd)]
+  esac
 }
-
 -- Evaluates a program with a given input and returns an output
 public fun evalStmt (input, stmt) {
   eval ([emptyState, createWorld (input)], stmt).snd.getOutput
