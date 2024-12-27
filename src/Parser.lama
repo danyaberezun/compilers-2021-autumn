@@ -15,11 +15,47 @@ fun inbr (l, p, r) {
 var primary = memo $ eta syntax (x=decimal {Const (stringInt (x))} |
                                  x=lident  {Var (x)}               |
                                  inbr[s("("), exp, s(")")]),
-      exp = memo $ eta (failure ("expression parsing not implemented\n"));
+      exp = memo $ eta expr (
+        {
+          [Left, {
+            [s("!!"), fun (l, op, r) {Binop(op, l, r)}]
+          }],
+          [Left, {
+            [s("&&"), fun (l, op, r) {Binop(op, l, r)}]
+          }],
+          [Nona, {
+            [s(">"), fun (l, op, r) {Binop(op, l, r)}],
+            [s(">="), fun (l, op, r) {Binop(op, l, r)}],
+            [s("<"), fun (l, op, r) {Binop(op, l, r)}],
+            [s("<="), fun (l, op, r) {Binop(op, l, r)}]
+          }],
+          [Nona, {
+            [s("=="), fun (l, op, r) {Binop(op, l, r)}],
+            [s("!="), fun (l, op, r) {Binop(op, l, r)}]
+          }],
+          
+          [Left, {
+            [s("-"), fun (l, op, r) {Binop(op, l, r)}],
+            [s("+"), fun (l, op, r) {Binop(op, l, r)}]
+          }],
+          [Left, {
+            [s("/"), fun (l, op, r) {Binop(op, l, r)}],
+            [s("*"), fun (l, op, r) {Binop(op, l, r)}],
+            [s("%"), fun (l, op, r) {Binop(op, l, r)}]
+          }]
+        }, primary
+      );
 
-var stmt = memo $ eta (failure ("statement parsing not implemented\n"));
-   
-
+var stmt = memo $ eta syntax (
+  q=stmt_2 { q } |
+  left=stmt_2 s[";"] right=stmt { Seq(left, right) }
+),
+stmt_2 = memo $ eta syntax (  
+                            kRead variable=inbr[s("("), lident, s(")")] { Read(variable) } |
+                            kWrite expression=inbr[s("("), exp, s(")")] { Write(expression)} |
+                            variable=lident s[":="] expression=exp { Assn(variable, expression)} |
+                            kSkip { Skip }  
+                          );
 -- Public top-level parser
 public parse = stmt;
              

@@ -27,7 +27,13 @@ public fun showSM (prg) {
 -- Stack machine interpreter. Takes an SM-configuration and a program,
 -- returns a final configuration
 fun eval (c, insns) {
-  failure ("SM eval not implemented\n")
+  case insns of
+    {} -> c
+  | current : other_insns ->
+    case evalStep(c, current) of new_c -> 
+      eval(new_c, other_insns)
+    esac
+  esac
 }
 
 -- Runs a stack machine for a given input and a given program, returns an output
@@ -39,12 +45,34 @@ public fun evalSM (input, insns) {
 -- Takes an expression, returns a list 
 -- of stack machine instructions
 fun compileExpr (expr) {
-  failure ("compileExpr not implemented\n")
+  case expr of 
+    Var (variable) -> {LD (variable)}
+  | Const (n) -> {CONST (n)}
+  | Binop (operation, l, r) -> compileExpr(l) +++ compileExpr(r) +++ {BINOP(operation)}
+  esac
 }
 
 -- Compiles a statement into a stack machine code.
 -- Takes a statement, returns a list of stack machine
 -- instructions.
 public fun compileSM (stmt) {
-  failure ("compileSM not implemented\n")
+  case stmt of
+      Assn (variable, expression) -> compileExpr(expression) +++ {ST(variable)}
+    | Seq (leftStmt, rightStmt) -> compileSM(leftStmt) +++ compileSM(rightStmt)
+    | Skip -> {}
+    | Read (variable) -> {READ, ST(variable)}
+    | Write (expression) -> compileExpr(expression) +++ {WRITE}
+  esac
+}
+
+
+fun evalStep (c@[stack, state, world], inst) {
+    case inst of
+      READ -> case readWorld (world) of [value, updatedWorld] -> [value:stack, state, updatedWorld] esac
+    | WRITE -> case stack of value : updatedStack -> [updatedStack, state, writeWorld (value, world)] esac
+    | BINOP (operation) -> case stack of right:left:updatedStack -> [evalExpr(emptyState, Binop(operation, Const (left), Const (right) )):updatedStack, state, world] esac
+    | LD (variable) -> [state(variable):stack, state, world]
+    | ST (variable) -> case stack of value:updatedStack -> [updatedStack, state <- [variable, value], world] esac
+    | CONST (n) -> [n:stack, state, world]
+    esac
 }
