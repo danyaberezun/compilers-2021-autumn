@@ -292,6 +292,17 @@ fun suffix (op) {
   esac
 }
 
+fun boolBinOp (env, code, op, l, r, result) {
+    [env, code <+ Binop("^", rax, rax) <+ Binop("cmp", rax, l) <+ Set(suffix("!="), "%al")
+               <+ Binop("^", rdx, rdx) <+ Binop("cmp", rdx, r) <+ Set(suffix("!="), "%dl")
+               <+ Binop(op, rdx, rax) <+ Binop("&&",  L (1), rax) <+ Mov (rax, result)
+    ]
+}
+
+fun cmpBinOp (env, code, op, l, r, result) {
+  [env, code <+ Mov(r, rax) <+ Binop("cmp", rax, l) <+ Mov(L (0), rax) <+ Set(suffix(op), "%al") <+ Mov (rax, result)]
+}
+
 -- Compiles stack machine code into a list of x86 instructions. Takes an environment
 -- and stack machine code, returns an updated environment and x86 code.
 fun compile (env, code) {
@@ -307,6 +318,37 @@ fun compile (env, code) {
           case env.pop of
             [s, env] -> [env, code <+ Mov (s, rdi) <+ Call ("Lwrite")]
           esac
+      | CONST (n) -> 
+          case env.allocate of
+            [s, env] -> [env, code <+> move (L (n), s)]
+          esac
+      | LD (name) -> 
+          case env.addGlobal(name).allocate of 
+            [s, env] -> [env, code <+> move (env.loc(name), s)]
+          esac
+      | ST (name) -> 
+          case env.addGlobal(name).pop of
+            [s, env] -> [env, code <+> move (s, env.loc(name))]
+          esac
+      | BINOP (op) -> 
+          case env.pop2 of [x, y, env] -> case env.allocate of [s, env] ->
+              case op of 
+                "&&"   -> boolBinOp(env, code, op, x, y, s)
+                | "!!" -> boolBinOp(env, code, op, x, y, s)
+                | "/"  -> [env, code <+ Mov (x, rax) <+ Cltd <+ IDiv(y) <+ Mov (rax, s)]
+                | "%"  -> [env, code <+ Mov (x, rax) <+ Cltd <+ IDiv(y) <+ Mov (rdx, s)]
+                | "<"  -> cmpBinOp(env, code, op, x, y, s)
+                | "<=" -> cmpBinOp(env, code, op, x, y, s)
+                | ">"  -> cmpBinOp(env, code, op, x, y, s)
+                | ">=" -> cmpBinOp(env, code, op, x, y, s)
+                | "!=" -> cmpBinOp(env, code, op, x, y, s)
+                | "==" -> cmpBinOp(env, code, op, x, y, s)
+                | _ -> [env, code <+ Mov (x, rax) <+ Binop (op, y, rax) <+ Mov (rax, s)]
+              esac
+          esac esac
+      | LABEL (label) -> [env, code <+ Label (label)]
+      | JMP   (label) -> [env, code <+ Jmp (label)]
+      | CJMP  (suf, label) -> case env.pop of [x, env] -> [env, code <+ Binop ("cmp", L (0), x) <+ CJmp (suf, label)] esac
       | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
       esac
     }, [env, emptyBuffer ()], code)
