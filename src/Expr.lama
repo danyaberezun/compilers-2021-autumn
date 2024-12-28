@@ -95,9 +95,89 @@ fun evalList (c, exprs) {
 }
 
 (* Assignment *)
-fun eval (c@[s, w], expr) {
-  failure ("evalExpr not implemented\n")
+
+fun evalScope(defs, s) {
+  case defs of
+    d:ds -> case d of
+        Var (names) -> evalScope(ds, addNames(s, names))
+      | Fun (name, args, body) -> evalScope(ds, addFunction(s, name, args, body))
+    esac
+    | _ -> s
+  esac
 }
+
+fun evalArgs(args, s) {
+  case args of
+    a:as -> case a of
+              [name, value] -> evalArgs(as, addName(s, name, value))
+            esac
+    | _ -> s 
+  esac
+}
+
+fun eval (c@[s, w], expr) {
+  case expr of
+    Assn (x, e) -> case evalList(c, {x, e}) of
+      [[s, w], {Ref (x), v}] -> [[s <- [x, v], w], v]
+                  esac
+  | Seq(e1, e2) ->
+      case evalList(c, {e1, e2}) of
+        [c, {x1, x2}] -> [c, x2]
+      esac
+  | Skip -> [c, Void]
+  | Read (x) -> case readWorld(w) of
+        [value, new_world] -> [[s <- [x, Val(value)], new_world], Void]
+      esac
+  | Write (e) -> case eval (c, e) of
+        [[s, w], Val (v)] -> [[s, writeWorld(v, w)], Void]
+      esac
+  | If(e, st1, st2) ->
+      case eval(c, e) of
+        [c, Val(0)] -> eval(c, st2)
+      | [c, Val(_)] -> eval(c, st1)
+      esac
+  | While(e, st) ->
+      case eval(c, e) of
+        [c, Val(0)] -> [c, Void]
+      | [c, Val(_)] -> case eval(c, st) of
+          [c, Void] -> eval(c, expr)
+        esac
+      esac
+  | DoWhile(st, e) ->
+      case eval(c, st) of
+        [c, Void] -> case eval(c, e) of
+          [c, Val(0)] -> [c, Void]
+        | [c, Val(_)] -> eval(c, expr)
+        esac
+      esac
+  | Var(x) -> [c, s.lookup(x)]
+  | Ref(x) -> [c, Ref(x)]
+  | Const(n) -> [c, Val(n)]
+  | Binop(op, e1, e2) ->
+      case evalList(c, {e1, e2}) of
+        [c, {Val(lhs), Val(rhs)}] -> [c, Val(evalOp(op, lhs, rhs))]
+      esac
+  | Ignore(expr) ->
+      case eval(c, expr) of
+        [c, _] -> [c, Void]
+      esac
+  | Scope (defs, e) -> 
+        case eval([evalScope(defs, s.enterScope), w], e) of
+          [[s, w], e] -> [[s.leaveScope, w], e]
+        esac
+  | Call (name, args) -> case s.lookup(name) of
+      Fun (names, body) -> 
+        case evalList(c, args) of
+          [[s1, w], argsValues] -> 
+            case eval([evalArgs(zip(names, argsValues), s1.enterFunction), w], body) of
+              [[s2, w], v] -> [[s1.leaveFunction(s2.getGlobal), w], v]
+            esac
+        esac
+    esac 
+  esac                                  
+}
+
+
 (* End *)
 
 -- Evaluates a program with a given input and returns an output

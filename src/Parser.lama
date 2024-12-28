@@ -105,6 +105,12 @@ fun distributeScope (expr, exprConstructor) {
   esac
 }
 
+var elseStmt = memo $ eta syntax (
+    loc=pos kFi { fun (a) { assertVoid(a, Skip, loc) } } |
+    kElse st=exp kFi { st } |
+    kElif e=exp kThen st=exp els=elseStmt { fun(a) { If(e(Val), st(a), els(a)) } }
+);
+
 var primary    = memo $ eta syntax (
                                       -- decimal constant
                                       loc=pos x=decimal                                 {fun (a) {assertValue (a, Const (stringInt (x)), loc)}}     |
@@ -121,8 +127,28 @@ var primary    = memo $ eta syntax (
                                                                                                             esac
                                                                                                          }} |
 (* Assignment *)
-                                      $(failure ("the rest of primary parsing in not implemented\n"))),
-(* End *)
+                                  e=inbr[s("("), scopeExpr, s(")")]                         |
+                                  loc=pos kWrite e=inbr[s("("), exp, s(")")]  {  fun (a) { assertVoid (a, Write (e (Val)), loc) }}         |
+                                  loc=pos kRead  x=inbr[s("("), lident, s(")")]  { fun (a) { assertVoid (a, Read (x), loc) }}             |
+                                  loc=pos kSkip { fun(a) {assertVoid (a, Skip, loc) }}                                                |
+                                  loc=pos kIf e=exp kThen st=exp els=elseStmt { fun (a) { If(e(Val), st(a), els(a)) } }|
+                                  loc=pos kWhile e=exp kDo st=scopeExpr kOd { fun (a) { assertVoid(a, While(e(Val), st(Void)), loc) } } |
+                                  loc=pos kDo  st=scopeExpr kWhile e=exp kOd {
+                                    fun (a) { 
+                                      assertVoid (a, distributeScope(st(Void), fun (sv) {
+                                        DoWhile (sv, e (Val))
+                                      }), loc) 
+                                    }
+                                  }  |
+                                  loc=pos kFor s1=scopeExpr s[","] e=exp s[","] s2=exp kDo s3=exp kOd {
+                                    fun (a) { 
+                                      assertVoid(a, distributeScope(s1(Void), fun (s1expr) { 
+                                        Seq(s1expr, While(e(Val), Seq(s3(Void), s2(Void))))
+                                      }), loc)
+                                    }
+                                  }),
+      
+      
       basic      = memo $ eta (expr ({[Right, {[s (":="),
                                                 fun (l, loc, r) {
                                                   fun (a) {assertValue (a, Assn (l (Ref), r (Val)), loc)}
