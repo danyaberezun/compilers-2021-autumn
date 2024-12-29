@@ -64,7 +64,16 @@ var primary  = memo $ eta syntax (
                                                                                        | _    -> Var (x)
                                                                                        esac
                                                                                     }} |
-                                  $(failure ("the rest of primary parsing in not implemented\n"))),
+                                  loc=pos kRead variable=inbr[s("("), lident, s(")")] { fun (a) { assertVoid(a, Read(variable), loc) } } |
+                                  loc=pos kWrite expression=inbr[s("("), basic, s(")")] { fun (a) { assertVoid(a, Write(expression (Val)), loc) } } |
+                                  loc=pos expression=inbr[s("("), exp, s(")")] { fun (a) { expression (a)}} |
+                                  loc=pos kSkip { fun (a) { assertVoid (a, Skip, loc) }} |
+                                  loc=pos kWhile expression=basic kDo stmtWhile=exp kOd { fun (a) { assertVoid(a, While (expression (Val) , stmtWhile (Void)), loc) } } |
+                                  loc=pos kDo stmtDoWhile=exp kWhile expression=basic kOd { fun (a) { assertVoid(a, DoWhile (expression (Val), stmtDoWhile (Void)), loc) } } |
+                                  loc=pos kIf expression=basic kThen stmtIf=exp stmtElifElse=stmt_Elif_Else kFi { fun (a) { If(expression (Val), stmtIf (a), stmtElifElse (a)) } } |
+                                  loc=pos kIf expression=basic kThen stmtIf=exp kFi { fun(a) { assertVoid(a, If(expression (Val), stmtIf (Void), Skip), loc) } } |
+                                  loc=pos kFor stmt1=basic s[","] expression=basic s[","] stmt2=basic kDo stmtFor=exp kOd { fun (a) { assertVoid(a, Seq(stmt1 (Void), While(expression (Val), Seq(stmtFor (Void), stmt2 (Void)))), loc) } }
+                                  ),
     basic    = memo $ eta (expr ({[Right, {[s (":="),
                                             fun (l, loc, r) {
                                               fun (a) {assertValue (a, Assn (l (Ref), r (Val)), loc)}
@@ -76,7 +85,11 @@ var primary  = memo $ eta syntax (
                                   [Left , map (binop, {"*", "/", "%"})]
                                  },
                                  primary)),
-    exp      = memo $ eta syntax (basic | s1=basic s[";"] s2=exp {fun (a) {Seq (s1 (Void), s2 (a))}});
+    exp      = memo $ eta syntax (basic | s1=basic s[";"] s2=exp {fun (a) {Seq (s1 (Void), s2 (a))}}),
+    stmt_Elif_Else = memo $ eta syntax (
+      loc=pos kElif expression=basic kThen elif_stmt=basic elif_else_2=stmt_Elif_Else { fun (a) { If(expression (Val), elif_stmt (a), elif_else_2 (a)) }} |
+      loc=pos kElse else_stmt=exp { fun (a) { else_stmt (a) }  }
+    );
 
 -- Public top-level parser
 public parse = syntax (s=exp {s (Void)});

@@ -143,7 +143,7 @@ fun makeEnv (stack, stackSlots, globals, barrier, stackMap) {
     of [x, n] -> [x, makeEnv (x : stack, if n > stackSlots then n else stackSlots fi, globals, barrier, stackMap)]esac
   }
 
-  -- Pushes an item on the symbolic state; returns an updated envirtonment
+  -- Pushes an item on the symbolic state; returns an updated environment
   fun push (y) {
     makeEnv (y : stack, stackSlots, globals, barrier, stackMap)
   }
@@ -361,6 +361,56 @@ fun suffix (op) {
   esac
 }
 
+fun cmpOperation(operation, left, right) {
+  singletonBuffer(Mov(left, rdx))
+                                          <+ Binop("cmp", right, rdx)
+                                          <+ Mov(L(0), rax)
+                                          <+ Set(suffix (operation), "%al")
+                                          <+ Mov(rax, left)
+}
+
+fun binOperation(operation, left, right) {
+  case operation of
+            "+" -> singletonBuffer(Mov (left, rdx)) <+ Binop("+", right, rdx) <+ Mov (rdx, left)
+          | "-" -> singletonBuffer(Mov (left, rdx)) <+ Binop("-", right, rdx) <+ Mov (rdx, left)
+          | "*" -> singletonBuffer(Mov (left, rdx)) <+ Binop("*", right, rdx) <+ Mov (rdx, left)
+          | "&&" -> singletonBuffer(Mov (left, rdx))
+                                          <+ Binop("cmp", L(0), rdx)
+                                          <+ Mov(L(0), rax)
+                                          <+ Set(suffix("!="), "%al")
+                                          <+ Mov (rax, left)
+                                          <+ Mov (right, rdx)
+                                          <+ Binop("cmp", L(0), rdx)
+                                          <+ Mov(L(0), rax)
+                                          <+ Set(suffix("!="), "%al")
+                                          <+ Binop("&&", left, rax)
+                                          <+ Mov (rax, left)
+          | "!!" -> singletonBuffer(Mov (left, rdx))
+                                          <+ Binop("cmp", L(0), rdx)
+                                          <+ Mov(L(0), rax)
+                                          <+ Set(suffix("!="), "%al")
+                                          <+ Mov (rax, left)
+                                          <+ Mov (right, rdx)
+                                          <+ Binop("cmp", L(0), rdx)
+                                          <+ Mov(L(0), rax)
+                                          <+ Set(suffix("!="), "%al")
+                                          <+ Binop("!!", left, rax)
+                                          <+ Mov (rax, left)
+          | "/" -> singletonBuffer(Mov (left, rax)) <+ Cltd <+ IDiv(right) <+ Mov(rax, left)
+          | "%" -> singletonBuffer(Mov (left, rax)) <+ Cltd <+ IDiv(right) <+ Mov(rdx, left)
+          | "<" -> cmpOperation("<", left, right)
+          | "<=" -> cmpOperation("<=", left, right)
+          | ">" -> cmpOperation(">", left, right)
+          | ">=" -> cmpOperation(">=", left, right)
+          | "==" -> cmpOperation("==", left, right)
+          | "!=" -> cmpOperation("!=", left, right)
+              
+        --  | "!!" -> [env.push(left), code <+ ]
+        --  | "<" -> 
+        --  | "<=" ->
+        --  | "
+          esac
+}
 -- Compiles stack machine code into a list of x86 instructions. Takes an environment
 -- and stack machine code, returns an updated environment and x86 code.
 fun compile (env, code) {
@@ -377,6 +427,37 @@ fun compile (env, code) {
           case env.pop of
             [s, env] -> [env, code <+ Mov (s, rdi) <+ Call ("Lwrite")]
           esac
+      | LD (x) -> 
+          case env.addGlobal(x).allocate of 
+            [s, env] -> [env, code <+> move (env.loc(x), s)] 
+          esac
+      | ST (x) ->
+        case env.addGlobal(x).pop of
+          [s, env] -> [env, code <+> move(s, env.loc(x))]
+        esac
+      | CONST (n) ->
+        case env.allocate of
+          [s, env] -> [env, code <+ Mov (L(n), s)]
+        esac
+      | BINOP (operation) ->
+        case env.pop2 of [right, left, env] ->
+          [env.push(left), code <+> binOperation(operation, left, right)]
+        esac
+      | LABEL (l) -> [env.retrieveStack(l), code <+ Label (l)]
+      | CJMP (c, l) -> case env.pop of [s, env] -> [env.setStack(l), code <+ Mov(L(0), rax) <+ Binop ("cmp", s, rax) <+ CJmp (if c == 0 then "z" else "nz" fi, l)] esac
+      | JMP (l) -> [env.setStack(l), code <+ Jmp (l)]
+      | STI -> 
+        case env.pop2 of [value, ref, env] ->
+          [env.push(ref), code <+> move (value, I(0, ref)) <+> move (value, ref)]
+        esac
+      | DROP ->
+        case env.pop of [_, env] ->
+          [env, code]
+        esac
+      | LDA (x) -> 
+        case env.addGlobal(x).allocate of 
+          [s, env] -> [env, code <+ Lea (env.loc(x), s)]
+        esac
       | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
         esac
     }, [env, emptyBuffer ()], code)

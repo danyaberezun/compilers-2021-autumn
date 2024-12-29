@@ -63,8 +63,27 @@ fun evalList (c, exprs) {
   esac
 }
 
-fun eval (c@[s, w], expr) {
-  failure ("evalExpr not implemented\n")
+fun eval (c@[state, world], expr) {
+  
+  case expr of
+      Var (variable) -> [c, state (variable)]
+    | Ref (x) -> [c, Ref (x)]
+    | Const (n) -> [c, n]
+    | Binop(operation, leftExpression, rightExpression) -> (
+      var left = eval(c, leftExpression);
+      var right = eval(left[0], rightExpression);
+      [right[0], evalOp(operation, left[1], right[1])]
+    )
+    | Assn (variable, expression) -> case eval(c, variable) of [c, Ref(x)] -> case eval(c, expression) of [updatedConfiguration, expressionValue] -> [[updatedConfiguration[0] <- [x, expressionValue], updatedConfiguration[1]], expressionValue] esac esac
+    | Seq (leftStmt, rightStmt) -> eval(eval(c, leftStmt)[0], rightStmt)
+    | Skip -> [c, Void]
+    | Read (variable) -> case readWorld(world) of [value, updatedWorld] -> [[state <- [variable, value], updatedWorld], Void] esac
+    | Write (expression) -> [[state, writeWorld(eval(c, expression)[1], world)], Void] 
+    | If (expression, stmt1, stmt2) -> case eval(c, expression)[1] of 1 -> eval(c, stmt1) | _ -> eval(c, stmt2) esac
+    | While (expression, stmt) -> case eval(c, expression)[1] of 1 -> case eval(c, stmt)[0] of updatedConfiguration -> eval(updatedConfiguration, While (expression, stmt)) esac | _ -> [c, Void] esac
+    | DoWhile (expression, stmt) -> case eval(c, stmt)[0] of updatedConfiguration -> eval(updatedConfiguration, While (expression, stmt)) esac
+    | Ignore (expression) -> [eval(c, expression)[0], Void]
+  esac
 }
 
 
