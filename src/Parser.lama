@@ -52,19 +52,34 @@ fun binop (op) {
   ]
 }
 
-var primary  = memo $ eta syntax (
-                                  -- decimal constant
-                                  loc=pos x=decimal                                 {fun (a) {assertValue (a, Const (stringInt (x)), loc)}}     |
+var elseBranches = memo $ eta syntax (
+  kElse els=exp {fun(a) {els(a)}}
+  | kElif cond=exp kThen th=exp els=elseBranches {fun (a) {If (cond(Val), th(a), els(a))}}
+  | kElif cond=exp kThen th=exp {fun (a) {If (cond(Val), th(a), Skip)}}
+);
 
-                                  -- identifier
-                                  x=lident                                          {fun (a) {
-                                                                                       case a of
-                                                                                         Ref  -> Ref (x)
-                                                                                       | Void -> Ignore (Var (x))
-                                                                                       | _    -> Var (x)
-                                                                                       esac
-                                                                                    }} |
-                                  $(failure ("the rest of primary parsing in not implemented\n"))),
+var primary  = memo $ eta syntax (
+    -- decimal constant
+    loc=pos x=decimal {fun (a) {assertValue (a, Const (stringInt (x)), loc)}} 
+    -- identifier
+    | x=lident {fun (a) {
+          case a of
+            Ref  -> Ref (x)
+          | Void -> Ignore (Var (x))
+          | _    -> Var (x)
+          esac
+      }}
+    | loc=pos e=inbr[s("("), exp, s(")")] {fun (a) {e(a)}} 
+    | loc=pos  kRead name=inbr[s("("), lident, s(")")] {fun(a) {assertVoid(a, Read(name), loc)}} 
+    | loc=pos kWrite e=inbr[s("("), exp, s(")")] {fun (a) {assertVoid(a, Write(e(Val)), loc)}} 
+    | loc=pos kSkip {fun (a) {assertVoid(a, Skip, loc)}} 
+    | loc=pos kWhile cond=exp kDo body=exp kOd {fun (a) {assertVoid(a, While(cond(Val), body(Void)), loc)}} 
+    | loc=pos kDo body=exp kWhile cond=exp kOd {fun (a) {assertVoid(a, DoWhile(body(Void), cond(Val)), loc)}} 
+    | kIf cond=exp kThen th=exp els=elseBranches kFi {fun (a) {If (cond(Val), th(a), els(a))}}
+    | kIf cond=exp kThen th=exp kFi {fun (a) {If (cond(Val), th(a), Skip)}}
+    | loc=pos kFor init=exp s[","] cond=exp s[","] step=exp kDo body=exp kOd{fun (a) {assertVoid(a, Seq (init(Void), While (cond(Val), Seq (body(Void), step(Void)))), loc)}} 
+    -- | $(failure ("the rest of primary parsing in not implemented\n"))),
+    ),
     basic    = memo $ eta (expr ({[Right, {[s (":="),
                                             fun (l, loc, r) {
                                               fun (a) {assertValue (a, Assn (l (Ref), r (Val)), loc)}

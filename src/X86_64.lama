@@ -377,9 +377,111 @@ fun compile (env, code) {
           case env.pop of
             [s, env] -> [env, code <+ Mov (s, rdi) <+ Call ("Lwrite")]
           esac
-      | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
+      | LD (x) ->
+          case env.addGlobal (x).allocate of
+	    [s, env] -> [env, code <+> move (env.loc (x), s)]
+	        esac
+      | ST (x) ->
+          case env.addGlobal (x).pop of
+	    [s, env] -> [env, code <+> move (s, env.loc (x))]
+	        esac
+      | CONST (n) -> 
+        -- BULLSHIT WARNING
+        case env.allocate of 
+          [s, env] -> [env, code <+ Mov (L(n), s)] --failure ("codegeneration for instruction %s is not yet implemented\n", i.string) 
         esac
+      
+      | BINOP (op) ->
+        case env.pop2 of
+          [x, y, env] ->
+            [env.push (y), code <+> if inbuf (op, {"==", "!=", ">=", "<=", ">", "<"}) 
+              then if memOpnd (x) 
+                then 
+                  singletonBuffer (Binop ("^", rax, rax)) 
+                  <+ Mov (x, rdx) 
+                  <+ Binop ("cmp", rdx, y) 
+                  <+ Set (suffix (op), "%al") 
+                  <+ Mov (rax, y) 
+                else 
+                  singletonBuffer (Binop ("^", rax, rax)) 
+                  <+ Binop ("cmp", x, y) 
+                  <+ Set (suffix (op), "%al") 
+                  <+ Mov (rax, y) 
+                fi 
+              elif inbuf (op, {"/", "%"}) then
+                singletonBuffer (Mov (y, rax)) <+ Cltd <+ IDiv (x) <+ Mov (if compare (op, "/") == 0 then rax else rdx fi, y)
+              else case op of
+                  "&&" -> --x to "bool"
+                          singletonBuffer (Mov (x, rax))
+                          <+ Binop (op, x, rax)
+                          <+ Mov (L(0), rax)
+                          <+ Set ("ne", "%al")
+                          --y to "bool"
+                          <+ Mov (y, rdx)
+                          <+ Binop (op, y, rdx)
+                          <+ Mov (L(0), rdx)
+                          <+ Set ("ne", "%dl")
+                          --and
+                          <+ Binop (op, rdx, rax)
+                          <+ Set ("ne", "%al")
+                          <+ Mov (rax, y)
+                | "!!" -> singletonBuffer (Mov (y, rax)) 
+                        <+ Binop (op, x, rax)
+                        <+ Mov (L(0), rax)
+                        <+ Set ("ne", "%al")
+                        <+ Mov (rax, y)
+                | _ -> if stackOpnd (x) && stackOpnd (y)
+                    then singletonBuffer (Mov (x, rax)) <+ Binop (op, rax, y)
+                    else singletonBuffer (Binop (op, x, y))
+                    fi
+                esac
+              fi
+            ]
+        esac
+      | LABEL (s)   -> if env.isBarrier then [retrieveStack(env, s), code <+ Label (s)] else [env, code <+ Label (s)] fi
+      | JMP (l)     -> [setBarrier(setStack(env,l)), code <+ Jmp (l)]
+      | CJMP (c, l) ->
+        case env.pop of
+          [s, env] -> [setBarrier(setStack(env,l)), code <+> if memOpnd (s) 
+                then 
+                  singletonBuffer (Binop ("^", rax, rax)) 
+                  <+ Mov (s, rdx) 
+                  <+ Binop ("cmp", rdx, rax) 
+                  <+ Set (suffix ("=="), "%al") 
+                else 
+                  singletonBuffer (Binop ("^", rax, rax)) 
+                  <+ Binop ("cmp", s, rax) 
+                  <+ Set (suffix ("=="), "%al") 
+                fi <+ CJmp(c, l)] 
+        esac
+      | LDA (x) -> case env.addGlobal (x).allocate of
+            [s, env] -> [env, code <+ Lea(env.loc (x), s)]
+          esac
+      | STI -> case env.pop2 of
+            [v, x, env] -> case env.allocate of
+              [s, env] -> [env, code <+> move(v, I(0, x)) <+> move(v, s)]
+          esac
+        esac
+      | DROP -> case env.pop of
+            [x, env] -> [env, code]
+          esac  
+      | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
+      esac
     }, [env, emptyBuffer ()], code)
+}
+
+fun toInstr (c) {
+  case c of
+    Z -> "e"
+    | NZ -> "ne"
+  esac
+}
+
+fun inbuf (elem, buf) {
+  case buf of
+      {} -> false
+    | x : xs -> if (compare (elem, x) == 0) then true else inbuf (elem, xs) fi
+  esac
 }
 
 -- A top-level codegeneration function. Takes a driver's environment and a stack machine program,
