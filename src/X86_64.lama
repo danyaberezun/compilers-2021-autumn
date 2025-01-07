@@ -6,6 +6,7 @@ import List;
 import Buffer;
 import Fun;
 import Manifest;
+import Array;
 
 -- Assembler language interface
 -- The registers:
@@ -425,35 +426,160 @@ fun suffix (op) {
   esac
 }
 
+-- Helper function: make BINOP dryer
+fun isCompareOp (op) {
+  case op of
+    "<"  -> true 
+  | "<=" -> true 
+  | "==" -> true
+  | "!=" -> true 
+  | ">=" -> true 
+  | ">"  -> true 
+  | _    -> false
+  esac
+}
+
 -- Compiles stack machine code into a list of x86 instructions. Takes an environment
 -- and stack machine code, returns an updated environment and x86 code.
 fun compile (env, code) {
   foldl (
     fun ([env, scode], i) {
       var code = scode <+ Meta ("# " ++ showSMInsn (i) ++ "\n");
-      
-      case i of
-        READ ->
-	  case savecode (env, 0) of
-	    [pushRegs, popRegs] ->
-               case env.allocate of
-                 [s, env] -> [env, code <+>
-		                   listBuffer (pushRegs) <+
-				   Call ("Lread") <+>
-				   listBuffer (reverse (popRegs)) <+
-				   Mov (rax, s)]
-	       esac
-          esac             
-      | WRITE ->
-          case savecode (env, 1) of
-	    [pushRegs, popRegs] ->
-               case env.pop of
-                 [s, env] -> [env, code <+>
-		                   listBuffer (pushRegs) <+
-				   Mov (s, rdi) <+
-				   Call ("Lwrite") <+>
-				   listBuffer (reverse (popRegs))]
-	       esac
+
+      case env.isBarrier of
+        true ->
+          case i of
+            LABEL (l) -> [env.retrieveStack (l), code <+ Label (l)]
+          | _         -> [env, code]
+          esac 
+      | _    ->
+          case i of
+            READ ->
+              case savecode (env, 0) of
+                [pushRegs, popRegs] ->
+                  case env.allocate of
+                    [s, env] -> [env, code                     <+>
+                                listBuffer (pushRegs)          <+
+                                Call ("Lread")                 <+>
+                                listBuffer (reverse (popRegs)) <+
+                                Mov (rax, s)]
+                  esac
+              esac             
+          | WRITE ->
+              case savecode (env, 1) of
+                [pushRegs, popRegs] ->
+                  case env.pop of
+                    [s, env] -> [env, code            <+>
+                                listBuffer (pushRegs) <+
+                                Mov (s, rdi)          <+
+                                Call ("Lwrite")       <+>
+                                listBuffer (reverse (popRegs))]
+                  esac
+              esac
+          | CONST (n) -> 
+              case env.allocate of
+                [s, env] -> [env, code <+ Mov (L (n), s)]
+              esac
+          | LABEL (l)    -> [env, code <+ Label (l)]
+          | JMP   (l)    -> [setBarrier (setStack (env, l)), code <+ Jmp (l)]
+          | CJMP  (c, l) -> 
+              case env.pop of
+                [s, env] -> [setStack (env, l), code <+ Binop ("cmp", L (0), s) <+ CJmp (c, l)]
+              esac
+          | GLOBAL (x)   -> [env.addGlobal (x), code]
+          | LD (x) -> 
+              case env.allocate of
+                [s, env] -> [env, code <+> move (env.loc (x), s)]
+              esac
+          | ST (x) -> [env, code <+> move (env.peek, env.loc (x))]
+          | LDA (x) -> 
+            case env.allocate of
+              [s, env] -> [env, code <+ Lea (env.loc (x), s)]
+            esac
+          | STI  ->
+              case env.pop2 of
+                [v, x, env] -> 
+                    case env.push (v) of
+                      env -> [env, code <+> move (v, I (0, x))]
+                    esac
+              esac
+          | DROP ->
+              case env.pop of
+                [_, env] -> [env, code]
+              esac          
+          | BINOP (op) -> 
+              case env.pop2 of
+                [y, x, env] -> 
+                  case env.allocate of
+                    [s, env] -> 
+                      case op of 
+                        "/" -> [env, code <+ Mov (x, rax) <+ Push (rdx) <+ Cltd <+ IDiv (y) <+ Mov (rax, s) <+ Pop (rdx)]
+                      | "%" -> [env, code <+ Mov (x, rax) <+ Push (rdx) <+ Cltd <+ IDiv (y) <+ Mov (rdx, s) <+ Pop (rdx)]
+                      | "&&" -> [env, code                      <+ 
+                                      Push (rdx)                <+ 
+                                      Binop ("^", rdx, rdx)     <+ 
+                                      Binop ("cmp", L (0), x)   <+ 
+                                      Set (suffix (">"), "%dl") <+ 
+                                      Mov (rdx, rax)            <+ 
+                                      Binop ("^", rdx, rdx)     <+ 
+                                      Binop ("cmp", L (0), y)   <+ 
+                                      Set (suffix (">"), "%dl") <+ 
+                                      Binop("&&", rdx, rax)     <+ 
+                                      Mov (rax, s)              <+ 
+                                      Pop (rdx)]
+                      | "!!" -> [env, code                      <+ 
+                                      Mov (x, rax)              <+ 
+                                      Binop (op, y, rax)        <+ 
+                                      Push (rdx)                <+ 
+                                      Binop ("^", rdx, rdx)     <+ 
+                                      Binop ("cmp", L (0), rax) <+ 
+                                      Set (suffix (">"), "%dl") <+ 
+                                      Mov (rdx, s)              <+ 
+                                      Pop (rdx)]
+                      | _    ->
+                          case isCompareOp (op) of
+                            true  -> [env, code                     <+ 
+                                          Mov (x, rax)             <+ 
+                                          Push (rdx)               <+ 
+                                          Binop ("^", rdx, rdx)    <+ 
+                                          Binop ("cmp", y, rax)    <+ 
+                                          Set (suffix (op), "%dl") <+ 
+                                          Mov (rdx, s)             <+ 
+                                          Pop (rdx)]
+                          | false -> [env, code <+ Mov (x, rax) <+ Binop (op, y, rax) <+ Mov (rax, s)]
+                          esac
+                      esac
+                  esac 
+              esac
+          | BEGIN (f, a, l) ->
+              case enterFunction (env, f, l) of
+                env -> [env, code <+> prologue (f)]
+              esac
+          | END ->
+              case env.epilogue of
+                [env, epilogueCode] -> [env, code <+> epilogueCode]
+              esac
+          | CALL (f, n) ->
+              case savecode (env, n) of
+                [pushRegs, popRegs] -> 
+                  case foldlArray (fun ([env, insns], _) {
+                    case env.pop of
+                      [s, env] -> [env, insns <+ Push (s)]
+                    esac
+                  }, [env, emptyBuffer ()], initArray (n, fun (_) {0})) of
+                    [env, pushParams] -> 
+                      case env.allocate of
+                        [s, env] -> [env, code                               <+>
+                                          listBuffer (pushRegs)              <+>
+                                          pushParams                         <+
+                                          Call (f)                           <+
+                                          Binop ("+", L (n * wordSize), rsp) <+>
+                                          listBuffer (reverse (popRegs))     <+
+                                          Mov (rax, s)]
+                      esac
+                  esac
+              esac 
+          | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
           esac
       (* Assignment
         
@@ -465,7 +591,8 @@ fun compile (env, code) {
          --    stack to the hardware one;
          -- 3. generate the call itself;
          -- 4. discard the actual parameters from the stack;
-         -- 5. restore saved live registers.
+         -- 5. restore saved live registers;
+         -- 6. Save returned value.
          --
          -- Some guidelines for generating functions:
          --
@@ -473,7 +600,6 @@ fun compile (env, code) {
          --    env.enterFunction to create a proper environment;
          -- 2. generate epilogue for END instruction.
                
-        | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
            End *)
         esac
     }, [env, emptyBuffer ()], code)
