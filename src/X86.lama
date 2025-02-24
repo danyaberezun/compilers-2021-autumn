@@ -23,6 +23,13 @@ var ebx = R (0),
     ebp = R (6),
     esp = R (7);
 
+-- Lama 1.3: crash after start if al, ah, dl, dh are directly initialized by string literals
+var regs8 = ["%al", "%ah", "%dl", "%dh"];
+var al = regs8[0],
+    ah = regs8[1],
+    dl = regs8[2],
+    dh = regs8[3];
+
 -- We need to know the word size to calculate offsets correctly
 var wordSize = 4;
 
@@ -289,12 +296,65 @@ fun compile (env, code) {
           esac
       | LD (x) ->
           case env.addGlobal (x).allocate of
-	    [s, env] -> [env, code <+> move (env.loc (x), s)]
-	  esac
+            [s, env] -> [env, code <+> move (env.loc (x), s)]
+          esac
       | ST (x) ->
           case env.addGlobal (x).pop of
-	    [s, env] -> [env, code <+> move (s, env.loc (x))]
-	  esac
+            [s, env] -> [env, code <+> move (s, env.loc (x))]
+          esac
+      | CONST (x) ->
+          case env.allocate of
+            [s, env] -> [env, code <+> move (L (x), s)]
+          esac
+      | BINOP (op) ->
+          case env.pop2 of
+            [y, x, env] -> 
+            if memOpnd (x) && memOpnd (y) && op != "/" && op != "%" && op != "*" then 
+              code := code <+ Mov (y, eax);
+              y := eax
+            fi;
+            
+            code := code <+> case op of
+              "+"  -> singletonBuffer (Binop ("+", y, x))
+            | "-"  -> singletonBuffer (Binop ("-", y, x))
+            | "*"  -> 
+              if memOpnd (x) then 
+                singletonBuffer (Mov (x, eax)) <+ Binop ("*", y, eax) <+ Mov (eax, x)
+              else 
+                singletonBuffer (Binop ("*", y, x)) 
+              fi
+            | "&&" ->
+              singletonBuffer (Binop ("^", eax, eax)) -- eax = 0
+                <+ Binop ("^", edx, edx)              -- edx = 0
+                <+ Binop ("cmp", L (0), x)            -- flags = compare(0, x)
+                <+ Set (suffix ("!="), al)            -- eax[7:0] = (0 != x)
+                <+ Binop ("cmp", L (0), y)            -- flags = compare(0, y)
+                <+ Set (suffix ("!="), ah)            -- eax[15:8] = (0 != y)
+                <+ Binop ("cmp", L (257), eax)        -- flags = compare(0x0101, eax)
+                <+ Set (suffix ("=="), dl)            -- edx[7:0] = (0x0101 == eax)
+                <+ Mov (edx, x)                       -- x = edx
+            | "!!" -> 
+              singletonBuffer (Binop ("^", eax, eax)) -- eax = 0
+                <+ Binop ("^", edx, edx)              -- edx = 0
+                <+ Binop ("cmp", L (0), x)            -- flags = compare(0, x)
+                <+ Set (suffix ("!="), al)            -- eax[7:0] = (0 != x)
+                <+ Binop ("cmp", L (0), y)            -- flags = compare(0, y)
+                <+ Set (suffix ("!="), ah)            -- eax[15:8] = (0 != y)
+                <+ Binop ("cmp", L (0), eax)          -- flags = compare(0, eax)
+                <+ Set (suffix ("!="), dl)            -- edx[7:0] = (0 != eax)
+                <+ Mov (edx, x)                       -- x = edx
+            | "/"  -> singletonBuffer (Binop ("^", edx, edx)) <+ Mov (x, eax) <+ IDiv (y) <+ Mov (eax, x)
+            | "%"  -> singletonBuffer (Binop ("^", edx, edx)) <+ Mov (x, eax) <+ IDiv (y) <+ Mov (edx, x)
+            | _    ->
+              singletonBuffer (Binop ("^", eax, eax))
+                <+ Binop ("cmp", y, x)
+                <+ Set (suffix (op), al)
+                <+ Mov (eax, x)
+            esac;
+            
+            [env.push (x), code]
+          esac
+    
       | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
       esac
     }, [env, emptyBuffer ()], code)
