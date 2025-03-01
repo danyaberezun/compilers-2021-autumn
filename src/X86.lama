@@ -113,14 +113,14 @@ fun makeEnv (stack, stackSlots, globals) {
   -- returns a pair: a location for allocated item and
   -- an updated environment
   fun allocate () {
-    case 
+    let [x, n] = 
       case stack of
         {}        -> [ebx, 0]
       | S (n) : _ -> [S (n+1), n+2]
       | R (n) : _ -> if n < nRegs then [R (n+1), stackSlots] else [S (0), 1] fi
       | _         -> [S (0), 1]
       esac
-    of [x, n] -> [x, makeEnv (x : stack, if n > stackSlots then n else stackSlots fi, globals)]esac
+    in [x, makeEnv (x : stack, if n > stackSlots then n else stackSlots fi, globals)]
   }
 
   -- Pushes an item on the symbolic state; returns an updated envirtonment
@@ -131,17 +131,13 @@ fun makeEnv (stack, stackSlots, globals) {
   -- Pops one item from the symbolic stack; returns a pair: a popped
   -- item and an updated environment
   fun pop () {
-    case stack of
-      x : stack -> [x, makeEnv (stack, stackSlots, globals)]
-    esac
+    let x:stack = stack in [x, makeEnv (stack, stackSlots, globals)]
   }
 
   -- Pops two items from the symbolic stack; returns a triple:
   -- popped items and an undated environment
   fun pop2 () {
-    case stack of
-      x : y : stack -> [x, y, makeEnv (stack, stackSlots, globals)]
-    esac
+    let x:y:stack = stack in [x, y, makeEnv (stack, stackSlots, globals)]
   }
 
   -- Adds a global variable; returns an updated environment
@@ -287,28 +283,17 @@ fun compile (env, code) {
       var code = scode <+ Meta ("# " ++ showSMInsn (i) ++ "\n");
       case i of
         READ ->
-          case env.allocate of
-            [s, env] -> [env, code <+ Call ("Lread") <+ Mov (eax, s)]
-          esac             
+          let [s, env] = env.allocate in [env, code <+ Call ("Lread") <+ Mov (eax, s)]
       | WRITE ->
-          case env.pop of
-            [s, env] -> [env, code <+ Push (s) <+ Call ("Lwrite") <+ Pop (eax)]
-          esac
+          let [s, env] = env.pop in [env, code <+ Push (s) <+ Call ("Lwrite") <+ Pop (eax)]
       | LD (x) ->
-          case env.addGlobal (x).allocate of
-            [s, env] -> [env, code <+> move (env.loc (x), s)]
-          esac
+          let [s, env] = env.addGlobal (x).allocate in [env, code <+> move (env.loc (x), s)]
       | ST (x) ->
-          case env.addGlobal (x).pop of
-            [s, env] -> [env, code <+> move (s, env.loc (x))]
-          esac
+          let [s, env] = env.addGlobal (x).pop in [env, code <+> move (s, env.loc (x))]
       | CONST (x) ->
-          case env.allocate of
-            [s, env] -> [env, code <+> move (L (x), s)]
-          esac
+          let [s, env] = env.allocate in [env, code <+> move (L (x), s)]
       | BINOP (op) ->
-          case env.pop2 of
-            [y, x, env] -> 
+          let [y, x, env] = env.pop2 in
             if memOpnd (x) && memOpnd (y) && op != "/" && op != "%" && op != "*" then 
               code := code <+ Mov (y, eax);
               y := eax
@@ -333,7 +318,7 @@ fun compile (env, code) {
                 <+ Binop ("cmp", L (257), eax)        -- flags = compare(0x0101, eax)
                 <+ Set (suffix ("=="), dl)            -- edx[7:0] = (0x0101 == eax)
                 <+ Mov (edx, x)                       -- x = edx
-            | "!!" -> 
+            | "!!" ->
               singletonBuffer (Binop ("^", eax, eax)) -- eax = 0
                 <+ Binop ("^", edx, edx)              -- edx = 0
                 <+ Binop ("cmp", L (0), x)            -- flags = compare(0, x)
@@ -353,8 +338,7 @@ fun compile (env, code) {
             esac;
             
             [env.push (x), code]
-          esac
-    
+  
       | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
       esac
     }, [env, emptyBuffer ()], code)
@@ -363,18 +347,16 @@ fun compile (env, code) {
 -- A top-level codegeneration function. Takes a stack machine program
 -- and returns x86 listing as a string
 public fun compileX86 (code) {
-  case compile (initEnv (), code) of
-    [env, code] ->
-       map (insnString, 
-            getBuffer $
-              singletonBuffer (Meta ("\t.global\tmain\n")) <+>
-              dataSection (listBuffer $ map (dataDef, getGlobals (env))) <+>
-              codeSection (
-                singletonBuffer (Meta ("main:\n")) <+>
-                prologue (getStackSize (env)) <+>
-                code <+>
-                epilogue ()
-              )
-           ).stringcat
-  esac
+  let [env, code] = compile (initEnv (), code) in
+    map (insnString, 
+        getBuffer $
+          singletonBuffer (Meta ("\t.global\tmain\n")) <+>
+          dataSection (listBuffer $ map (dataDef, getGlobals (env))) <+>
+          codeSection (
+            singletonBuffer (Meta ("main:\n")) <+>
+            prologue (getStackSize (env)) <+>
+            code <+>
+            epilogue ()
+          )
+        ).stringcat
 }

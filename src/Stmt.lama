@@ -20,7 +20,7 @@ fun eval (c@[s, w], stmt) {
     Assn   (n, e)         -> [s <- [n, evalExpr (s, e)], w]
   | Seq    (s1, s2)       -> eval (eval (c, s1), s2)
   | Skip                  -> c
-  | Read   (n)            -> case readWorld (w) of [v, w1] -> [s <- [n, v], w1] esac 
+  | Read   (n)            -> let [v, w1] = readWorld (w) in [s <- [n, v], w1] 
   | Write  (e)            -> [s, writeWorld (evalExpr (s, e), w)]
   esac
 }

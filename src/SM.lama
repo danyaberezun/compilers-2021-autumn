@@ -27,12 +27,12 @@ fun eval (c, insns) {
   foldl(
     fun (c@[stack, s, w], ins) {
       case ins of 
-        READ      -> case readWorld (w) of [v, w1] -> [v:stack, s, w1] esac
-      | WRITE     -> case stack of v:stack1 -> [stack1, s, writeWorld (v, w)] esac
-      | BINOP (op) -> case stack of v2:v1:stack1 -> [evalOp (op, v1, v2):stack1, s, w] esac
-      | LD    (x) -> [s (x):stack, s, w]
-      | ST    (x) -> case stack of v:stack1 -> [stack1, s <- [x, v], w] esac
-      | CONST (n) -> [n:stack, s, w]
+        READ       -> let [v, w1] = readWorld (w) in [v:stack, s, w1]
+      | WRITE      -> let v:stack1 = stack in [stack1, s, writeWorld (v, w)]
+      | BINOP (op) -> let v2:v1:stack1 = stack in [evalOp (op, v1, v2):stack1, s, w]
+      | LD    (x)  -> [s (x):stack, s, w]
+      | ST    (x)  -> let v:stack1 = stack in [stack1, s <- [x, v], w]
+      | CONST (n)  -> [n:stack, s, w]
       esac
     },
     c,

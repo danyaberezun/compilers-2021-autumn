@@ -24,9 +24,7 @@ var ops = {
 -- The evaluator for infix operators: takes an operator as a string
 -- and two operand values, and returns the result
 public fun evalOp (op, l, r) {
-  case assoc (ops, op) of
-    Some (f) -> f (l, r)
-  esac
+  let Some (f) = assoc (ops, op) in f (l, r)
 }
 (* End *)
 
