@@ -14,8 +14,15 @@ import World;
 --        Skip                      |
 --        Read   (string)           |
 --        Write  (expr)             |
-fun eval (c, stmt) {
-   failure("Stmt eval not implemented\n")
+
+fun eval (c@[s, w], stmt) {
+  case stmt of
+    Assn   (n, e)         -> [s <- [n, evalExpr (s, e)], w]
+  | Seq    (s1, s2)       -> eval (eval (c, s1), s2)
+  | Skip                  -> c
+  | Read   (n)            -> let [v, w1] = readWorld (w) in [s <- [n, v], w1] 
+  | Write  (e)            -> [s, writeWorld (evalExpr (s, e), w)]
+  esac
 }
 -- Evaluates a program with a given input and returns an output
 public fun evalStmt (input, stmt) {

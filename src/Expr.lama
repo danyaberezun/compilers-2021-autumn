@@ -1,6 +1,32 @@
 -- Expression evaluator
 import List;
 import State;
+import Fun;
+
+(* Implementation *)
+-- As association map which maps "\otimes" into "\oplus"
+var ops = {
+  ["+" , infix + ],
+  ["-" , infix - ],
+  ["*" , infix * ],
+  ["/" , infix / ],
+  ["%" , infix % ],
+  ["==", infix ==],
+  ["!=", infix !=],
+  ["<" , infix < ],
+  ["<=", infix <=],
+  [">" , infix > ],
+  [">=", infix >=],
+  ["&&", infix &&],
+  ["!!", infix !!]
+};
+
+-- The evaluator for infix operators: takes an operator as a string
+-- and two operand values, and returns the result
+public fun evalOp (op, l, r) {
+  let Some (f) = assoc (ops, op) in f (l, r)
+}
+(* End *)
 
 -- The evaluator itself: takes a state and an expression,
 -- returns integer value
@@ -11,5 +37,11 @@ import State;
 --        Const (int)                |
 --        Binop (string, expr, expr)
 public fun evalExpr (st, expr) {
-   failure("evalExpr not implemented\n")
+  case expr of
+    Var (v)            -> st (v)
+  | Const (x)          -> x
+  | Binop (op, e1, e2) -> var v1 = evalExpr (st, e1);
+                          var v2 = evalExpr (st, e2);
+                          evalOp (op, v1, v2)
+  esac
 }

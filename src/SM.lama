@@ -24,21 +24,58 @@ public fun showSM (prg) {
 -- Stack machine interpreter. Takes an SM-configuration and a program,
 -- returns a final configuration
 fun eval (c, insns) {
-   failure("SM eval not implemented\n")
+  foldl(
+    fun (c@[stack, s, w], ins) {
+      case ins of 
+        READ       -> let [v, w1] = readWorld (w) in [v:stack, s, w1]
+      | WRITE      -> let v:stack1 = stack in [stack1, s, writeWorld (v, w)]
+      | BINOP (op) -> let v2:v1:stack1 = stack in [evalOp (op, v1, v2):stack1, s, w]
+      | LD    (x)  -> [s (x):stack, s, w]
+      | ST    (x)  -> let v:stack1 = stack in [stack1, s <- [x, v], w]
+      | CONST (n)  -> [n:stack, s, w]
+      esac
+    },
+    c,
+    insns
+  )
 }
 -- Runs a stack machine for a given input and a given program, returns an output
 public fun evalSM (input, insns) {
    eval([{}, emptyState, createWorld(input)], insns)[2].getOutput
 }
+
+fun compileExpr1 (expr, out) {
+  case expr of
+    Var (v)            -> addBuffer (out, LD (v))
+  | Const (x)          -> addBuffer (out, CONST (x))
+  | Binop (op, e1, e2) -> out := compileExpr1 (e1, out); 
+                          out := compileExpr1 (e2, out); 
+                          addBuffer(out, BINOP (op))
+  esac
+}
 -- Compiles an expression into a stack machine code.
 -- Takes an expression, returns a list (of, possibly, lists)
 -- of stack machine instructions
 fun compileExpr (expr) {
-   failure("compileExpr not implemented\n")
+  getBuffer (compileExpr1 (expr, emptyBuffer ()))
+}
+
+public fun compileSM1 (stmt, out) {
+  case stmt of
+    Assn   (n, e)         -> out := compileExpr1 (e, out);
+                             addBuffer (out, ST (n))
+  | Seq    (s1, s2)       -> out := compileSM1 (s1, out);
+                             compileSM1 (s2, out)
+  | Skip                  -> skip
+  | Read   (n)            -> out := addBuffer (out, READ);
+                             addBuffer (out, ST (n))
+  | Write  (e)            -> out := compileExpr1 (e, out);
+                             addBuffer (out, WRITE)
+  esac
 }
 -- Compiles a statement into a stack machine code.
 -- Takes a statement, returns a list of stack machine
 -- instructions.
 public fun compileSM (stmt) {
-   failure("compileSM not implemented\n")
+  getBuffer (compileSM1 (stmt, emptyBuffer ()))
 }
